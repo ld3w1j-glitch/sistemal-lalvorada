@@ -1,0 +1,119 @@
+{% set ctx = assistente_contexto or 'mcp_teste' %}
+{% set titulo = assistente_titulo or 'Assistente IA' %}
+{% set linha_padrao = assistente_linha or '' %}
+<section class="ai-context-panel" data-ai-context="{{ ctx }}" data-ai-linha="{{ linha_padrao }}">
+  <div class="ai-context-card">
+    <div class="ai-context-head">
+      <div>
+        <span class="ai-chip">MCP/IA integrado</span>
+        <h2>{{ titulo }}</h2>
+        <p class="muted ai-help">Carregando sugestões...</p>
+      </div>
+      <a class="btn btn-secondary" href="{{ url_for('mcp_teste', contexto=ctx) }}">Abrir central</a>
+    </div>
+
+    <div class="ai-quick-actions"></div>
+
+    <form class="ai-form">
+      <textarea name="mensagem" rows="2" placeholder="Pergunte sobre esta página..."></textarea>
+      <div class="inline ai-form-actions">
+        <button class="btn" type="submit">Consultar</button>
+        <button class="btn btn-secondary ai-analyze" type="button">Analisar esta página</button>
+      </div>
+    </form>
+
+    <div class="ai-output is-empty">Use uma sugestão ou faça uma pergunta.</div>
+  </div>
+</section>
+<script>
+(function(){
+  const panel = document.currentScript.previousElementSibling;
+  if (!panel || !panel.classList.contains('ai-context-panel')) return;
+  const ctx = panel.dataset.aiContext || 'mcp_teste';
+  const linha = panel.dataset.aiLinha || '';
+  const help = panel.querySelector('.ai-help');
+  const quick = panel.querySelector('.ai-quick-actions');
+  const form = panel.querySelector('.ai-form');
+  const input = form.querySelector('textarea');
+  const output = panel.querySelector('.ai-output');
+  const analyzeBtn = panel.querySelector('.ai-analyze');
+  let suggestions = [];
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, function(ch){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch];
+    });
+  }
+
+  function renderTable(table) {
+    if (!table || !Array.isArray(table.rows) || !table.rows.length) return '';
+    const columns = (table.columns || []).slice(0, 6);
+    const labels = table.labels || {};
+    const rows = table.rows.slice(0, 10);
+    return '<div class="ai-mini-table-wrap"><table class="ai-mini-table"><thead><tr>' +
+      columns.map(col => '<th>' + escapeHtml(labels[col] || col) + '</th>').join('') +
+      '</tr></thead><tbody>' + rows.map(row => '<tr>' + columns.map(col => '<td>' + escapeHtml(row[col] ?? '') + '</td>').join('') + '</tr>').join('') +
+      '</tbody></table></div>';
+  }
+
+  function renderSummary(summary) {
+    if (!summary || typeof summary !== 'object') return '';
+    const keys = Object.keys(summary).slice(0, 5);
+    if (!keys.length) return '';
+    return '<div class="ai-summary-row">' + keys.map(key => '<div><span>' + escapeHtml(key.replaceAll('_', ' ')) + '</span><strong>' + escapeHtml(summary[key]) + '</strong></div>').join('') + '</div>';
+  }
+
+  async function ask(message) {
+    const text = String(message || '').trim();
+    if (!text) return;
+    output.classList.remove('is-empty');
+    output.innerHTML = '<div class="ai-loading">Consultando...</div>';
+    try {
+      const resp = await fetch('{{ url_for('api_mcp_perguntar') }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({contexto: ctx, mensagem: text, linha: linha, filtros: {limite: 60}})
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Erro na consulta.');
+      const table = data.table || {};
+      output.innerHTML = '<strong>' + escapeHtml(table.title || data.tool || 'Resultado') + '</strong>' +
+        '<p>' + escapeHtml(data.answer || 'Consulta concluída.') + '</p>' +
+        renderSummary(table.summary) + renderTable(table) +
+        '<div class="ai-footer-link"><a href="{{ url_for('mcp_teste') }}?contexto=' + encodeURIComponent(ctx) + '">Abrir na central para exportar PDF/Excel</a></div>';
+    } catch (err) {
+      output.innerHTML = '<div class="alert error">' + escapeHtml(err.message || err) + '</div>';
+    }
+  }
+
+  async function loadContext() {
+    try {
+      const resp = await fetch('{{ url_for('api_mcp_contexto') }}?contexto=' + encodeURIComponent(ctx));
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Erro ao carregar contexto.');
+      suggestions = data.sugestoes || [];
+      help.textContent = data.help || 'Consulta inteligente do sistema.';
+      quick.innerHTML = suggestions.slice(0, 5).map(item => '<button type="button" class="btn btn-secondary ai-suggestion">' + escapeHtml(item) + '</button>').join('');
+      quick.querySelectorAll('.ai-suggestion').forEach(btn => {
+        btn.addEventListener('click', () => {
+          input.value = btn.textContent;
+          ask(input.value);
+        });
+      });
+    } catch (err) {
+      help.textContent = 'Não consegui carregar as sugestões.';
+    }
+  }
+
+  form.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    ask(input.value);
+  });
+  analyzeBtn.addEventListener('click', function(){
+    const pergunta = suggestions[0] || 'status do sistema';
+    input.value = pergunta;
+    ask(pergunta);
+  });
+  loadContext();
+})();
+</script>

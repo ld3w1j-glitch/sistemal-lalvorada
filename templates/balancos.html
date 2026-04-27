@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main">
+  <div class="wrap">
+    <div class="grid-2">
+      <div class="card">
+        <h1 class="section-title">Balanço de estoque</h1>
+        <p class="muted">Crie uma contagem, registre as mercadorias e compare o saldo do sistema com a quantidade contada antes de atualizar o estoque.</p>
+        <form method="post">
+          <input type="text" name="titulo" placeholder="Título da contagem. Ex: Balanço linha linguiça" required>
+          <textarea name="observacao" placeholder="Observação opcional"></textarea>
+          <button type="submit">Criar nova contagem</button>
+        </form>
+      </div>
+      <div class="card">
+        <h2 class="section-title">Como funciona</h2>
+        <div class="stock-empty-state">
+          1. Crie a contagem.<br>
+          2. Registre os produtos pelo código ou código de barras.<br>
+          3. Imprima ou exporte o relatório para comparar.<br>
+          4. Confirme apenas quando tiver certeza para atualizar o estoque.<br>
+          5. Se criar uma contagem errada, o admin pode remover pela lista.
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="stock-results-head">
+        <h2 class="section-title" style="margin:0;">Contagens criadas</h2>
+      </div>
+      {% if balances %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>Título</th><th>Status</th><th>Itens</th><th>Divergências</th><th>Criado por</th><th>Criado em</th><th>Ações</th></tr></thead>
+          <tbody>
+          {% for b in balances %}
+            <tr>
+              <td>#{{ b.id }}</td>
+              <td>{{ b.titulo }}</td>
+              <td><span class="badge">{{ b.status }}</span></td>
+              <td>{{ b.total_itens or 0 }}</td>
+              <td>{{ b.divergencias or 0 }}</td>
+              <td>{{ b.criado_por_nome or '-' }}</td>
+              <td>{{ b.criado_em }}</td>
+              <td>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+                  <a class="btn btn-secondary" href="{{ url_for('detalhe_balanco', balance_id=b.id) }}">Abrir</a>
+                  {% if user_is_admin(g.user) %}
+                  <a class="btn" href="{{ url_for('confirmar_remover_balanco', balance_id=b.id) }}" style="background:#dc2626; border-color:#dc2626; color:white;">Remover</a>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div class="empty">Nenhuma contagem criada ainda.</div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

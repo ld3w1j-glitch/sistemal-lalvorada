@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main">
+  <div class="wrap">
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+        <div>
+          <h1 class="section-title">Histórico vinculado ao usuário</h1>
+          <p class="mini">Usuário: <strong>{{ user.nome }}</strong> • Login: {{ user.username }}</p>
+          <p class="mini">Aqui o admin pode selecionar históricos finalizados desse usuário, conferir o que será devolvido ao estoque e confirmar a remoção segura.</p>
+        </div>
+        <a class="btn-secondary" href="{{ url_for('usuarios') }}">Voltar para usuários</a>
+      </div>
+    </div>
+
+    {% if modo_preview %}
+    <div class="card" style="margin-bottom:16px; border:1px solid #d99b33; background:#fff8ec;">
+      <h2 class="section-title">Prévia antes de confirmar</h2>
+      <p>Confira abaixo o que será devolvido ao estoque. Nada foi alterado ainda.</p>
+
+      <div class="table-wrap" style="margin-top:12px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Descrição</th>
+              <th>Históricos</th>
+              <th>Qtd. a devolver</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in resumo %}
+            <tr>
+              <td>{{ row.codigo }}</td>
+              <td>{{ row.descricao }}</td>
+              <td>{{ row.total_historicos }}</td>
+              <td><strong>{{ '%.3f'|format(row.quantidade_a_devolver or 0) }}</strong></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="empty">Nenhum item para devolver.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <form method="post" style="margin-top:14px; display:grid; gap:10px; max-width:520px;">
+        {% for sid in selecionados %}
+          <input type="hidden" name="separation_ids" value="{{ sid }}">
+        {% endfor %}
+        <input type="hidden" name="acao" value="confirmar">
+        <label>
+          Confirme com sua senha de admin
+          <input type="password" name="senha_admin" required placeholder="Senha do admin logado">
+        </label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn-danger" type="submit" onclick="return confirm('Confirmar exclusão do histórico selecionado e devolução ao estoque?');">Confirmar exclusão e devolver estoque</button>
+          <a class="btn-secondary" href="{{ url_for('historico_usuario', user_id=user.id) }}">Cancelar</a>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+
+    <form method="post" class="card">
+      <input type="hidden" name="acao" value="preview">
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">
+        <h2 class="section-title" style="margin:0;">Históricos finalizados encontrados</h2>
+        <button type="submit">Ver prévia do estorno</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Lote</th>
+              <th>Loja</th>
+              <th>Status</th>
+              <th>Finalizado em</th>
+              <th>Resp.</th>
+              <th>Conf.</th>
+              <th>Criado por</th>
+              <th>Itens</th>
+              <th>Total separado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for h in historicos %}
+            <tr>
+              <td><input type="checkbox" name="separation_ids" value="{{ h.id }}" {% if h.id in selecionados %}checked{% endif %}></td>
+              <td>{{ h.lote_nome }}</td>
+              <td>{{ h.store_nome }}</td>
+              <td><span class="badge">{{ h.status }}</span></td>
+              <td>{{ (h.finalizado_em or h.criado_em or '')[:16] }}</td>
+              <td>{{ h.responsavel_nome or '-' }}</td>
+              <td>{{ h.conferente_nome or '-' }}</td>
+              <td>{{ h.criado_por_nome or '-' }}</td>
+              <td>{{ h.total_itens }}</td>
+              <td>{{ '%.3f'|format(h.total_separado or 0) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="10" class="empty">Nenhum histórico finalizado vinculado a esse usuário.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

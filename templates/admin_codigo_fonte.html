@@ -1,0 +1,152 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main code-admin-page"><div class="wrap">
+  <div class="card code-admin-head">
+    <div>
+      <h1 class="section-title">Painel ADM — Código fonte</h1>
+      <p class="muted">Navegue pelas pastas, edite arquivos de texto e salve com backup, histórico, diff e restauração.</p>
+      <p class="mini">Raiz liberada: <code>{{ root_path }}</code></p>
+      {% if exige_senha_codigo %}
+      <p class="mini"><strong>Segurança:</strong> para salvar ou restaurar, confirme sua senha atual.</p>
+      {% endif %}
+    </div>
+    <div class="inline">
+      <a class="btn btn-secondary" href="{{ url_for('dashboard') }}">Voltar ao painel</a>
+      {% if selected %}<a class="btn" href="{{ request.path }}?arquivo={{ selected.path|urlencode }}">Atualizar arquivo</a>{% endif %}
+    </div>
+  </div>
+
+  {% if aviso %}
+  <div class="alert error">{{ aviso }}</div>
+  {% endif %}
+
+  <div class="code-admin-grid">
+    <aside class="card code-file-browser">
+      <div class="toolbar">
+        <h2 class="section-title">Arquivos</h2>
+        <a class="btn btn-secondary" href="{{ url_for('admin_codigo_fonte') }}">Raiz</a>
+      </div>
+      <div class="code-breadcrumb">
+        <a href="{{ url_for('admin_codigo_fonte') }}">projeto</a>
+        {% for crumb in listing.breadcrumb %}
+          <span>/</span><a href="{{ url_for('admin_codigo_fonte', path=crumb.path) }}">{{ crumb.name }}</a>
+        {% endfor %}
+      </div>
+
+      <div class="code-file-list">
+        {% if listing.current %}
+          <a class="code-file-row is-dir" href="{{ url_for('admin_codigo_fonte', path=listing.current.rsplit('/', 1)[0] if '/' in listing.current else '') }}">
+            <span class="code-file-icon">↩</span><span>Voltar pasta</span><small></small>
+          </a>
+        {% endif %}
+        {% for entry in listing.entries %}
+          {% if entry.is_dir %}
+          <a class="code-file-row is-dir" href="{{ url_for('admin_codigo_fonte', path=entry.path) }}">
+            <span class="code-file-icon">📁</span><span>{{ entry.name }}</span><small>{{ entry.modified }}</small>
+          </a>
+          {% else %}
+          <a class="code-file-row {% if selected and selected.path == entry.path %}is-active{% endif %} {% if not entry.editable %}is-disabled{% endif %}" href="{{ url_for('admin_codigo_fonte', arquivo=entry.path) }}">
+            <span class="code-file-icon">📄</span><span>{{ entry.name }}</span><small>{{ entry.size }} bytes</small>
+          </a>
+          {% endif %}
+        {% else %}
+          <div class="empty">Pasta vazia.</div>
+        {% endfor %}
+      </div>
+
+      <div class="code-history-box">
+        <h2 class="section-title">Histórico e backups</h2>
+        {% for item in historico_codigo %}
+          <div class="code-history-row">
+            <strong>{{ item.acao|upper }} #{{ item.id }}</strong>
+            <span>{{ item.arquivo }}</span>
+            <small>{{ item.criado_em }} • {{ item.usuario_nome }}</small>
+            <div class="inline">
+              <a class="btn btn-secondary" href="{{ url_for('admin_codigo_fonte', diff_id=item.id, arquivo=item.arquivo) }}">Ver diff</a>
+              {% if item.backup_path %}
+              <form method="post" onsubmit="return confirm('Restaurar o backup deste arquivo? O estado atual também será salvo em backup antes.');">
+                <input type="hidden" name="action" value="restore">
+                <input type="hidden" name="history_id" value="{{ item.id }}">
+                {% if exige_senha_codigo %}
+                <input type="password" name="confirm_password" placeholder="Sua senha" required>
+                {% endif %}
+                <button class="btn btn-secondary" type="submit">Restaurar</button>
+              </form>
+              {% endif %}
+            </div>
+          </div>
+        {% else %}
+          <div class="empty">Nenhum backup registrado ainda.</div>
+        {% endfor %}
+      </div>
+    </aside>
+
+    <main class="card code-editor-card">
+      {% if selected %}
+      <form method="post" id="code-editor-form">
+        <input type="hidden" name="action" value="save">
+        <input type="hidden" name="arquivo" value="{{ selected.path }}">
+        <div class="code-editor-toolbar">
+          <div>
+            <h2 class="section-title">Editando: {{ selected.path }}</h2>
+            <p class="mini">Encoding lido: {{ selected.encoding }} • Extensão: {{ selected.extension }}</p>
+          </div>
+          <div class="inline">
+            {% if exige_senha_codigo %}
+              <input type="password" name="confirm_password" placeholder="Sua senha atual" required>
+            {% endif %}
+            <button class="btn" type="submit">Salvar alteração</button>
+            <button class="btn btn-secondary" type="button" id="code-copy-btn">Copiar</button>
+          </div>
+        </div>
+        <textarea name="content" id="code-editor" spellcheck="false">{{ selected.content }}</textarea>
+        <div class="code-admin-warning">
+          <strong>Atenção:</strong> HTML, CSS e JS aparecem ao atualizar a página. Alterações em Python normalmente precisam reiniciar o serviço no Railway.
+        </div>
+      </form>
+      {% else %}
+      <div class="code-empty-state">
+        <h2>Selecione um arquivo</h2>
+        <p>Abra uma pasta na esquerda e clique em um arquivo permitido.</p>
+        <p class="muted">Banco de dados, arquivos de ambiente e binários ficam bloqueados.</p>
+      </div>
+      {% endif %}
+
+      {% if diff_preview %}
+      <div class="code-diff-card">
+        <h2 class="section-title">Comparação da alteração</h2>
+        <pre>{{ diff_preview }}</pre>
+      </div>
+      {% endif %}
+    </main>
+  </div>
+</div></section>
+<script>
+(function(){
+  const textarea = document.getElementById('code-editor');
+  const copyBtn = document.getElementById('code-copy-btn');
+  if (textarea) {
+    textarea.addEventListener('keydown', function(ev){
+      if (ev.key === 'Tab') {
+        ev.preventDefault();
+        const start = this.selectionStart;
+        const end = this.selectionEnd;
+        this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
+        this.selectionStart = this.selectionEnd = start + 4;
+      }
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') {
+        ev.preventDefault();
+        document.getElementById('code-editor-form').requestSubmit();
+      }
+    });
+  }
+  if (copyBtn && textarea) {
+    copyBtn.addEventListener('click', async function(){
+      await navigator.clipboard.writeText(textarea.value);
+      copyBtn.textContent = 'Copiado';
+      setTimeout(() => copyBtn.textContent = 'Copiar', 1200);
+    });
+  }
+})();
+</script>
+{% endblock %}

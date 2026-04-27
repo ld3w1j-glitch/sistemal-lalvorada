@@ -1,0 +1,706 @@
+{% extends 'base.html' %}
+{% block content %}
+<main class="wrap page">
+  <section class="card mcp-chat-card">
+    <div class="section-title">
+      <div>
+        <span class="eyebrow">Integração com IA</span>
+        <h1>MCP/IA - Consulta inteligente</h1>
+        <p class="muted">Pesquise produtos, estoque baixo, lotes, lojas e movimentações. Agora a busca tem filtros avançados, resumo visual, ordenação de tabela e exportação melhorada.</p>
+      </div>
+      <span class="badge badge-admin">Modo leitura</span>
+    </div>
+
+    <div class="mcp-alert">
+      <strong>Importante:</strong> esta página consulta o MCP em modo seguro. Ela não altera estoque, não apaga dados e não edita o banco.
+    </div>
+
+    <div class="mcp-grid">
+      <div class="mcp-panel">
+        <h2>Consulta avançada</h2>
+
+        <form id="mcp-advanced-form" class="mcp-advanced-form">
+          <label>
+            Tipo de consulta
+            <select id="mcp-tipo">
+              <option value="livre">Pesquisa livre</option>
+              <option value="avancado">Busca avançada de produtos</option>
+              <option value="resumo_linhas">Resumo por linha/categoria</option>
+              <option value="categorias">Categorias/Linhas disponíveis</option>
+              <option value="produto">Produto por código/nome</option>
+              <option value="estoque_baixo">Estoque baixo</option>
+              <option value="lote">Lote</option>
+              <option value="lojas">Lojas</option>
+              <option value="movimentacoes">Movimentações</option>
+              <option value="status">Status do sistema</option>
+            </select>
+          </label>
+
+          <label>
+            Termo, código ou lote
+            <input id="mcp-termo" type="text" list="mcp-sugestoes" autocomplete="off" placeholder="Ex: farinha, 123, LT-001">
+            <datalist id="mcp-sugestoes"></datalist>
+          </label>
+
+          <label>
+            Linha/Categoria dos itens
+            <select id="mcp-linha">
+              <option value="">Todas as linhas/categorias</option>
+            </select>
+            <small class="mcp-field-help">Ex.: Pão de alho, linguiça, frango, frios, bebidas. O sistema agrupa automaticamente pela descrição.</small>
+          </label>
+
+          <div class="mcp-form-row">
+            <label>
+              Limite de resultados
+              <input id="mcp-limite" type="number" min="1" max="200" value="50">
+            </label>
+            <label>
+              Estoque baixo até
+              <input id="mcp-baixo" type="number" min="0" value="10">
+            </label>
+          </div>
+
+          <div class="mcp-form-row">
+            <label>
+              Saldo mínimo
+              <input id="mcp-estoque-min" type="number" step="0.001" placeholder="Ex: 1">
+            </label>
+            <label>
+              Saldo máximo
+              <input id="mcp-estoque-max" type="number" step="0.001" placeholder="Ex: 20">
+            </label>
+          </div>
+
+          <div class="mcp-form-row">
+            <label>
+              Ordenar por
+              <select id="mcp-ordenar">
+                <option value="descricao">Descrição</option>
+                <option value="codigo">Código</option>
+                <option value="linha">Linha/Categoria</option>
+                <option value="quantidade">Quantidade/Saldo</option>
+                <option value="valor">Valor estimado</option>
+              </select>
+            </label>
+            <label>
+              Direção
+              <select id="mcp-direcao">
+                <option value="asc">Crescente</option>
+                <option value="desc">Decrescente</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="mcp-check">
+            <input id="mcp-com-saldo" type="checkbox">
+            Mostrar somente itens com saldo positivo
+          </label>
+
+          <div class="mcp-form-actions">
+            <button type="submit" class="btn">Consultar</button>
+            <button type="button" id="mcp-clear-filters" class="btn secondary">Limpar</button>
+          </div>
+        </form>
+
+        <h2 class="mcp-subtitle">Perguntas rápidas</h2>
+        <div class="mcp-examples">
+          {% for exemplo in exemplos %}
+            <button type="button" class="btn secondary mcp-example" data-text="{{ exemplo }}">{{ exemplo }}</button>
+          {% endfor %}
+        </div>
+
+        {% if consultas_salvas %}
+        <h2 class="mcp-subtitle">Consultas salvas</h2>
+        <div class="mcp-saved-list">
+          {% for consulta in consultas_salvas %}
+          <button type="button" class="mcp-saved-query" data-text="{{ consulta.pergunta }}" data-linha="{{ consulta.linha }}" data-filtros='{{ consulta.filtros|tojson }}'>
+            <strong>{{ consulta.titulo }}</strong>
+            <span>{{ consulta.pergunta }}</span>
+          </button>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if historico_mcp %}
+        <h2 class="mcp-subtitle">Últimas consultas</h2>
+        <div class="mcp-history-list">
+          {% for h in historico_mcp %}
+          <button type="button" class="mcp-history-query" data-text="{{ h.pergunta }}" data-linha="{{ h.linha }}" data-filtros='{{ h.filtros|tojson }}'>
+            <strong>{{ h.pergunta }}</strong>
+            <span>{{ h.criado_em }} • {{ h.total_registros }} registro(s)</span>
+          </button>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="mcp-panel mcp-chat-box">
+        <div class="mcp-chat-head">
+          <h2>Conversa</h2>
+          <div class="mcp-actions">
+            <button type="button" id="mcp-print" class="btn secondary" disabled>Imprimir</button>
+            <button type="button" id="mcp-export-excel" class="btn secondary" disabled>Excel</button>
+            <button type="button" id="mcp-export-pdf" class="btn secondary" disabled>PDF</button>
+            <button type="button" id="mcp-copy" class="btn secondary" disabled>Copiar</button>
+            <button type="button" id="mcp-save" class="btn secondary" disabled>Salvar consulta</button>
+          </div>
+        </div>
+
+        <div id="mcp-messages" class="mcp-messages" aria-live="polite">
+          <div class="mcp-message bot">
+            <strong>Sistema MCP</strong>
+            <pre>Olá. Você pode usar a consulta avançada ou perguntar: farinha, estoque baixo, produto 123, resumo por linha, lote LT-001, movimentações do produto 123 ou listar lojas.</pre>
+          </div>
+        </div>
+
+        <div id="mcp-result" class="mcp-result is-empty">
+          <div class="mcp-result-head">
+            <div>
+              <span class="eyebrow">Resultado estruturado</span>
+              <h2 id="mcp-result-title">Nenhuma consulta feita</h2>
+            </div>
+            <span id="mcp-result-count" class="badge">0 item</span>
+          </div>
+
+          <div id="mcp-summary" class="mcp-summary is-empty"></div>
+          <div id="mcp-prepared-actions" class="mcp-prepared-actions is-empty"></div>
+
+          <div class="mcp-local-filter">
+            <label>
+              Filtrar dentro do resultado exibido
+              <input id="mcp-local-filter" type="search" placeholder="Digite para filtrar a tabela atual...">
+            </label>
+          </div>
+
+          <div id="mcp-result-table" class="mcp-result-table">
+            <p class="muted">Faça uma consulta para visualizar a tabela aqui.</p>
+          </div>
+        </div>
+
+        <form id="mcp-form" class="mcp-form">
+          <textarea id="mcp-input" name="mensagem" rows="3" placeholder="Digite sua pergunta... Ex: buscar linguiça com saldo até 20"></textarea>
+          <button type="submit" class="btn">Perguntar</button>
+        </form>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+(function(){
+  const form = document.getElementById('mcp-form');
+  const advancedForm = document.getElementById('mcp-advanced-form');
+  const input = document.getElementById('mcp-input');
+  const messages = document.getElementById('mcp-messages');
+  const examples = document.querySelectorAll('.mcp-example');
+  const resultBox = document.getElementById('mcp-result');
+  const resultTitle = document.getElementById('mcp-result-title');
+  const resultCount = document.getElementById('mcp-result-count');
+  const resultTable = document.getElementById('mcp-result-table');
+  const summaryBox = document.getElementById('mcp-summary');
+  const localFilter = document.getElementById('mcp-local-filter');
+  const printBtn = document.getElementById('mcp-print');
+  const excelBtn = document.getElementById('mcp-export-excel');
+  const pdfBtn = document.getElementById('mcp-export-pdf');
+  const copyBtn = document.getElementById('mcp-copy');
+  const clearBtn = document.getElementById('mcp-clear-filters');
+  const linhaSelect = document.getElementById('mcp-linha');
+  const termoInput = document.getElementById('mcp-termo');
+  const sugestoes = document.getElementById('mcp-sugestoes');
+  const saveBtn = document.getElementById('mcp-save');
+  const preparedActions = document.getElementById('mcp-prepared-actions');
+  const mcpContexto = '{{ contexto or 'mcp_teste' }}';
+
+  let lastQuery = '';
+  let lastTable = null;
+  let lastLinha = '';
+  let lastFilters = {};
+  let currentRows = [];
+  let currentSort = {column: '', direction: 'asc'};
+  let suggestionTimer = null;
+
+  function addMessage(kind, title, text) {
+    const box = document.createElement('div');
+    box.className = 'mcp-message ' + kind;
+    const strong = document.createElement('strong');
+    strong.textContent = title;
+    const pre = document.createElement('pre');
+    pre.textContent = text;
+    box.appendChild(strong);
+    box.appendChild(pre);
+    messages.appendChild(box);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  async function carregarCategorias() {
+    if (!linhaSelect) return;
+
+    try {
+      const params = new URLSearchParams({limite: '120'});
+      const response = await fetch('{{ url_for('api_mcp_categorias') }}?' + params.toString());
+      const data = await response.json();
+      const categorias = data.categorias || [];
+
+      linhaSelect.innerHTML = '<option value="">Todas as linhas/categorias</option>';
+      categorias.forEach(function(cat){
+        const option = document.createElement('option');
+        option.value = cat.linha || '';
+        option.textContent = (cat.linha || 'Sem linha') + ' (' + (cat.total_itens || 0) + ')';
+        linhaSelect.appendChild(option);
+      });
+    } catch (error) {
+      console.warn('Não foi possível carregar categorias MCP:', error);
+    }
+  }
+
+  async function carregarSugestoes() {
+    const termo = termoInput.value.trim();
+    if (!sugestoes || termo.length < 2) return;
+
+    try {
+      const params = new URLSearchParams({termo: termo, linha: linhaSelecionada(), limite: '12'});
+      const response = await fetch('{{ url_for('api_mcp_sugestoes') }}?' + params.toString());
+      const data = await response.json();
+      const itens = data.sugestoes || [];
+      sugestoes.innerHTML = '';
+      itens.forEach(function(item){
+        const option = document.createElement('option');
+        option.value = item.codigo || item.descricao || '';
+        option.label = (item.descricao || '') + (item.quantidade_formatada ? ' | saldo ' + item.quantidade_formatada : '');
+        sugestoes.appendChild(option);
+      });
+    } catch (error) {
+      console.warn('Não foi possível carregar sugestões MCP:', error);
+    }
+  }
+
+  function linhaSelecionada() {
+    return linhaSelect ? (linhaSelect.value || '').trim() : '';
+  }
+
+  function linhaPermitidaParaTipo(tipo) {
+    return ['livre', 'avancado', 'produto', 'estoque_baixo', 'resumo_linhas'].includes(tipo) ? linhaSelecionada() : '';
+  }
+
+  function collectFilters() {
+    return {
+      tipo: document.getElementById('mcp-tipo').value,
+      termo: termoInput.value.trim(),
+      limite: document.getElementById('mcp-limite').value || '50',
+      estoque_min: document.getElementById('mcp-estoque-min').value,
+      estoque_max: document.getElementById('mcp-estoque-max').value,
+      somente_com_saldo: document.getElementById('mcp-com-saldo').checked,
+      ordenar: document.getElementById('mcp-ordenar').value,
+      direcao: document.getElementById('mcp-direcao').value
+    };
+  }
+
+  function buildAdvancedQuestion() {
+    const tipo = document.getElementById('mcp-tipo').value;
+    const termo = termoInput.value.trim();
+    const limite = document.getElementById('mcp-limite').value || '50';
+    const baixo = document.getElementById('mcp-baixo').value || '10';
+
+    if (tipo === 'status') return 'status do sistema';
+    if (tipo === 'resumo_linhas') return 'resumo por linha limite ' + limite;
+    if (tipo === 'categorias') return termo ? 'listar categorias ' + termo + ' limite ' + limite : 'listar categorias limite ' + limite;
+    if (tipo === 'lojas') return 'listar lojas limite ' + limite;
+    if (tipo === 'estoque_baixo') return 'estoque baixo até ' + baixo + ' limite ' + limite;
+    if (tipo === 'movimentacoes') return termo ? 'movimentações do produto ' + termo + ' limite ' + limite : 'movimentações do estoque limite ' + limite;
+    if (tipo === 'lote') return termo ? 'lote ' + termo + ' limite ' + limite : 'lotes abertos limite ' + limite;
+    if (tipo === 'produto') return termo ? 'produto ' + termo + ' limite ' + limite : 'listar produtos limite ' + limite;
+    if (tipo === 'avancado') return (termo || 'listar estoque') + ' limite ' + limite;
+    return (termo || 'listar estoque') + ' limite ' + limite;
+  }
+
+  function parseNumber(value) {
+    if (value === null || value === undefined) return 0;
+    const text = String(value).replace('R$', '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '');
+    const parsed = Number(text);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function formatCardValue(key, value) {
+    if (value === null || value === undefined || value === '') return '0';
+    if (key.includes('valor') && !String(value).includes('R$')) {
+      return Number(value || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+    }
+    return String(value);
+  }
+
+  function labelFor(key) {
+    const labels = {
+      total_registros: 'Registros',
+      linhas_distintas: 'Linhas',
+      quantidade_total_formatada: 'Qtd. total',
+      valor_total_estimado_formatado: 'Valor estimado',
+      itens_zerados: 'Zerados',
+      itens_estoque_baixo_ate_10: 'Baixo estoque'
+    };
+    return labels[key] || key.replaceAll('_', ' ');
+  }
+
+  function renderSummary(table) {
+    const summary = (table && table.summary) || {};
+    const keys = ['total_registros', 'linhas_distintas', 'quantidade_total_formatada', 'valor_total_estimado_formatado', 'itens_zerados', 'itens_estoque_baixo_ate_10'];
+    const cards = keys.filter(function(key){ return summary[key] !== undefined && summary[key] !== null && summary[key] !== ''; });
+
+    if (!cards.length) {
+      summaryBox.classList.add('is-empty');
+      summaryBox.innerHTML = '';
+      return;
+    }
+
+    summaryBox.classList.remove('is-empty');
+    summaryBox.innerHTML = cards.map(function(key){
+      return '<div class="mcp-summary-card"><span>' + labelFor(key) + '</span><strong>' + formatCardValue(key, summary[key]) + '</strong></div>';
+    }).join('');
+  }
+
+  function getFilteredRows() {
+    if (!lastTable || !lastTable.rows) return [];
+    const filtro = (localFilter.value || '').trim().toLowerCase();
+    let rows = lastTable.rows.slice();
+
+    if (filtro) {
+      rows = rows.filter(function(row){
+        return Object.values(row).some(function(value){
+          return String(value || '').toLowerCase().includes(filtro);
+        });
+      });
+    }
+
+    if (currentSort.column) {
+      const col = currentSort.column;
+      const direction = currentSort.direction === 'desc' ? -1 : 1;
+      rows.sort(function(a, b){
+        const av = a[col] || '';
+        const bv = b[col] || '';
+        const an = parseNumber(av);
+        const bn = parseNumber(bv);
+        const bothNumeric = String(av).match(/[0-9]/) && String(bv).match(/[0-9]/);
+        if (bothNumeric && an !== bn) return (an - bn) * direction;
+        return String(av).localeCompare(String(bv), 'pt-BR') * direction;
+      });
+    }
+
+    return rows;
+  }
+
+  function renderCurrentRows() {
+    if (!lastTable || !lastTable.columns || !lastTable.columns.length) {
+      resultTable.innerHTML = '<p class="muted">Nenhum resultado em tabela.</p>';
+      return;
+    }
+
+    const columns = lastTable.columns;
+    const labels = lastTable.labels || {};
+    currentRows = getFilteredRows();
+    resultCount.textContent = currentRows.length + (currentRows.length === 1 ? ' item' : ' itens');
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'table-scroll';
+    const tableEl = document.createElement('table');
+    tableEl.className = 'mcp-data-table';
+
+    const thead = document.createElement('thead');
+    const trHead = document.createElement('tr');
+    columns.forEach(function(col){
+      const th = document.createElement('th');
+      th.dataset.column = col;
+      th.title = 'Clique para ordenar';
+      th.textContent = labels[col] || col;
+      if (currentSort.column === col) th.textContent += currentSort.direction === 'asc' ? ' ↑' : ' ↓';
+      th.addEventListener('click', function(){
+        if (currentSort.column === col) {
+          currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+          currentSort.column = col;
+          currentSort.direction = 'asc';
+        }
+        renderCurrentRows();
+      });
+      trHead.appendChild(th);
+    });
+    thead.appendChild(trHead);
+
+    const tbody = document.createElement('tbody');
+    currentRows.forEach(function(row){
+      const tr = document.createElement('tr');
+      columns.forEach(function(col){
+        const td = document.createElement('td');
+        td.textContent = row[col] || '';
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+
+    tableEl.appendChild(thead);
+    tableEl.appendChild(tbody);
+    wrapper.appendChild(tableEl);
+    resultTable.innerHTML = '';
+    resultTable.appendChild(wrapper);
+  }
+
+  function renderPreparedActions(actions) {
+    if (!preparedActions) return;
+    if (!actions || !actions.length || !lastQuery) {
+      preparedActions.classList.add('is-empty');
+      preparedActions.innerHTML = '';
+      return;
+    }
+    preparedActions.classList.remove('is-empty');
+    preparedActions.innerHTML = '<strong>Ações preparadas</strong><p>Essas ações ficam como rascunho e não alteram o estoque sem revisão.</p>' +
+      actions.map(function(action){
+        return '<button type="button" class="btn secondary" data-action-type="' + escapeHtml(action.type) + '">' + escapeHtml(action.label) + '</button>';
+      }).join('');
+    preparedActions.querySelectorAll('[data-action-type]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        prepararAcao(btn.dataset.actionType);
+      });
+    });
+  }
+
+  async function prepararAcao(actionType) {
+    if (!lastQuery) return;
+    try {
+      const response = await fetch('{{ url_for('api_mcp_preparar_acao') }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({contexto: mcpContexto, action_type: actionType, pergunta: lastQuery, linha: lastLinha, filtros: lastFilters})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Erro ao preparar ação.');
+      addMessage('bot', 'Ação preparada', data.mensagem || 'Rascunho criado.');
+    } catch (error) {
+      addMessage('bot', 'Erro', 'Não consegui preparar a ação: ' + error.message);
+    }
+  }
+
+  function renderTable(table) {
+    lastTable = table || null;
+    currentSort = {column: '', direction: 'asc'};
+    resultBox.classList.remove('is-empty');
+
+    if (!table || !table.columns || !table.columns.length) {
+      resultTitle.textContent = table && table.title ? table.title : 'Sem resultado estruturado';
+      resultCount.textContent = '0 item';
+      resultTable.innerHTML = '<p class="muted">Nenhum resultado em tabela.</p>';
+      summaryBox.innerHTML = '';
+      summaryBox.classList.add('is-empty');
+      printBtn.disabled = true;
+      excelBtn.disabled = true;
+      pdfBtn.disabled = true;
+      copyBtn.disabled = true;
+      if (saveBtn) saveBtn.disabled = true;
+      return;
+    }
+
+    resultTitle.textContent = table.title || 'Resultado';
+    renderSummary(table);
+    renderCurrentRows();
+
+    printBtn.disabled = false;
+    excelBtn.disabled = false;
+    pdfBtn.disabled = false;
+    copyBtn.disabled = false;
+    if (saveBtn) saveBtn.disabled = false;
+  }
+
+  async function perguntar(texto, linhaForcada, filtrosForcados) {
+    const mensagem = (texto || '').trim();
+    const linha = (linhaForcada !== undefined ? linhaForcada : linhaSelecionada()).trim();
+    const filtros = filtrosForcados || {};
+    if (!mensagem) return;
+
+    lastQuery = mensagem;
+    lastLinha = linha;
+    lastFilters = filtros;
+    addMessage('user', 'Você', linha ? mensagem + '\nFiltro de linha/categoria: ' + linha : mensagem);
+    input.value = '';
+    addMessage('bot loading', 'Sistema MCP', 'Consultando...');
+    const loading = messages.querySelector('.mcp-message.loading');
+
+    try {
+      const response = await fetch('{{ url_for('api_mcp_perguntar') }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({contexto: mcpContexto, mensagem, linha, filtros})
+      });
+      const data = await response.json();
+      if (loading) loading.remove();
+      addMessage('bot', 'Ferramenta: ' + (data.tool || '-'), data.answer || 'Sem resposta.');
+      localFilter.value = '';
+      renderTable(data.table);
+      renderPreparedActions(data.acoes_sugeridas || []);
+    } catch (error) {
+      if (loading) loading.remove();
+      addMessage('bot', 'Erro', 'Não consegui consultar agora. Detalhe: ' + error);
+    }
+  }
+
+  async function exportar(formato) {
+    if (!lastQuery) return;
+    const url = formato === 'pdf'
+      ? '{{ url_for('api_mcp_exportar', formato='pdf') }}'
+      : '{{ url_for('api_mcp_exportar', formato='excel') }}';
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({contexto: mcpContexto, mensagem: lastQuery, linha: lastLinha, filtros: lastFilters})
+    });
+
+    if (!response.ok) {
+      alert('Não consegui exportar agora.');
+      return;
+    }
+
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : (formato === 'pdf' ? 'consulta_mcp.pdf' : 'consulta_mcp.xlsx');
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+  }
+
+  function escapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, function(s){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]; });
+  }
+
+  function imprimir() {
+    if (!lastTable || !lastTable.columns || !lastTable.columns.length) return;
+
+    const columns = lastTable.columns;
+    const labels = lastTable.labels || {};
+    const rows = currentRows.length ? currentRows : getFilteredRows();
+    const summary = lastTable.summary || {};
+
+    let html = '<html><head><title>Imprimir consulta</title>';
+    html += '<style>body{font-family:Arial,sans-serif;margin:24px;color:#1f241f} h1{font-size:22px} p{color:#555}.cards{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.card{border:1px solid #ddd;padding:8px 10px;border-radius:10px}.card span{display:block;font-size:11px;color:#666}.card strong{font-size:16px} table{border-collapse:collapse;width:100%;font-size:12px} th,td{border:1px solid #ccc;padding:7px;text-align:left;vertical-align:top} th{background:#2F5D2E;color:#fff}</style>';
+    html += '</head><body>';
+    html += '<h1>' + escapeHtml(lastTable.title || 'Resultado MCP') + '</h1>';
+    html += '<p>Consulta: ' + escapeHtml(lastQuery) + (lastLinha ? ' | Linha/Categoria: ' + escapeHtml(lastLinha) : '') + '</p>';
+    html += '<div class="cards">';
+    ['total_registros','linhas_distintas','quantidade_total_formatada','valor_total_estimado_formatado','itens_zerados','itens_estoque_baixo_ate_10'].forEach(function(key){
+      if (summary[key] !== undefined && summary[key] !== null && summary[key] !== '') {
+        html += '<div class="card"><span>' + escapeHtml(labelFor(key)) + '</span><strong>' + escapeHtml(formatCardValue(key, summary[key])) + '</strong></div>';
+      }
+    });
+    html += '</div>';
+    html += '<table><thead><tr>';
+    columns.forEach(function(col){ html += '<th>' + escapeHtml(labels[col] || col) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    rows.forEach(function(row){
+      html += '<tr>';
+      columns.forEach(function(col){
+        html += '<td>' + escapeHtml(row[col] || '') + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></body></html>';
+
+    const win = window.open('', '_blank');
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  }
+
+  function copiarTabela() {
+    if (!lastTable || !lastTable.columns || !lastTable.columns.length) return;
+    const columns = lastTable.columns;
+    const labels = lastTable.labels || {};
+    const rows = currentRows.length ? currentRows : getFilteredRows();
+    const linhas = [];
+    linhas.push(columns.map(function(col){ return labels[col] || col; }).join('\t'));
+    rows.forEach(function(row){
+      linhas.push(columns.map(function(col){ return String(row[col] || '').replace(/\s+/g, ' '); }).join('\t'));
+    });
+    navigator.clipboard.writeText(linhas.join('\n')).then(function(){
+      addMessage('bot', 'Copiado', 'Tabela copiada para a área de transferência.');
+    });
+  }
+
+  function limparFiltros() {
+    advancedForm.reset();
+    document.getElementById('mcp-limite').value = '50';
+    document.getElementById('mcp-baixo').value = '10';
+    sugestoes.innerHTML = '';
+  }
+
+  function parseFiltrosAttr(value) {
+    try { return value ? JSON.parse(value) : {}; } catch (err) { return {}; }
+  }
+
+  async function salvarConsultaAtual() {
+    if (!lastQuery) return;
+    const titulo = prompt('Nome para essa consulta salva:', lastQuery.slice(0, 60));
+    if (!titulo) return;
+    try {
+      const response = await fetch('{{ url_for('api_mcp_salvar_consulta') }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({contexto: mcpContexto, titulo: titulo, pergunta: lastQuery, linha: lastLinha, filtros: lastFilters})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Erro ao salvar.');
+      addMessage('bot', 'Consulta salva', 'Atualize a página para ver a consulta na lista de salvas.');
+    } catch (error) {
+      addMessage('bot', 'Erro', 'Não consegui salvar a consulta: ' + error.message);
+    }
+  }
+
+  form.addEventListener('submit', function(event){
+    event.preventDefault();
+    perguntar(input.value, linhaSelecionada(), {});
+  });
+
+  advancedForm.addEventListener('submit', function(event){
+    event.preventDefault();
+    const tipo = document.getElementById('mcp-tipo').value;
+    const filtros = collectFilters();
+    perguntar(buildAdvancedQuestion(), linhaPermitidaParaTipo(tipo), filtros);
+  });
+
+  examples.forEach(function(btn){
+    btn.addEventListener('click', function(){
+      perguntar(btn.dataset.text || btn.textContent, linhaSelecionada(), {});
+    });
+  });
+
+  document.querySelectorAll('.mcp-saved-query, .mcp-history-query').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const pergunta = btn.dataset.text || btn.textContent;
+      const linha = btn.dataset.linha || linhaSelecionada();
+      const filtros = parseFiltrosAttr(btn.dataset.filtros || '{}');
+      perguntar(pergunta, linha, filtros);
+    });
+  });
+
+  if (saveBtn) saveBtn.addEventListener('click', salvarConsultaAtual);
+
+  termoInput.addEventListener('input', function(){
+    clearTimeout(suggestionTimer);
+    suggestionTimer = setTimeout(carregarSugestoes, 250);
+  });
+
+  localFilter.addEventListener('input', renderCurrentRows);
+  printBtn.addEventListener('click', imprimir);
+  excelBtn.addEventListener('click', function(){ exportar('excel'); });
+  pdfBtn.addEventListener('click', function(){ exportar('pdf'); });
+  copyBtn.addEventListener('click', copiarTabela);
+  clearBtn.addEventListener('click', limparFiltros);
+
+  carregarCategorias();
+})();
+</script>
+{% endblock %}

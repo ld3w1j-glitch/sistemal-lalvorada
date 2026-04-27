@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main">
+  <div class="wrap">
+    <div class="card" style="max-width:780px;margin:0 auto;">
+      <h1 class="section-title">Remover importação ERP #{{ importacao.id }}</h1>
+      <p class="muted">
+        Confirme abaixo para remover essa importação da lista de importações recentes.
+      </p>
+
+      <div class="erp-file-hint" style="border-color:#f3c2c2;background:#fff5f5;color:#8a1f1f;">
+        Atenção: remover o registro da importação não desfaz automaticamente alterações de estoque já aplicadas.
+        Se ela já estiver com status <strong>APLICADO</strong>, o estoque atual será mantido.
+      </div>
+
+      <div class="erp-summary-grid" style="margin-top:16px;">
+        <div class="stat"><span>Arquivo</span><strong>{{ importacao.filename }}</strong></div>
+        <div class="stat"><span>Status</span><strong>{{ importacao.status }}</strong></div>
+        <div class="stat"><span>Produtos</span><strong>{{ importacao.total_produtos }}</strong></div>
+        <div class="stat"><span>Itens salvos</span><strong>{{ total_itens }}</strong></div>
+        <div class="stat"><span>Loja</span><strong>{{ importacao.loja or '-' }}</strong></div>
+        <div class="stat"><span>Criado em</span><strong>{{ importacao.criado_em }}</strong></div>
+        <div class="stat"><span>Delta total</span><strong>{{ fmt_num(resumo.get('delta_total', 0)) }}</strong></div>
+      </div>
+
+      <form method="post" action="{{ '/estoque/importar-erp/%s/remover' % importacao.id }}" style="margin-top:18px;display:grid;gap:12px;">
+        <div>
+          <label class="stock-label">Motivo da remoção</label>
+          <textarea name="motivo" rows="3" placeholder="Ex: importei o arquivo errado ou quero limpar importações antigas"></textarea>
+        </div>
+        <div>
+          <label class="stock-label">Senha do admin</label>
+          <input type="password" name="senha_admin" placeholder="Digite sua senha para confirmar" required>
+        </div>
+        <div class="stock-export-actions">
+          <a class="btn btn-secondary" href="{{ url_for('importar_estoque_erp') }}">Cancelar</a>
+          <button class="btn-danger" type="submit" onclick="return confirm('Tem certeza que deseja remover essa importação ERP?');">Sim, remover importação</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main">
+  <div class="wrap">
+    <div class="card erp-hero-card">
+      <div class="erp-hero-grid">
+        <div>
+          <h1 class="section-title">Importar saldo do ERP</h1>
+          <p class="muted">Use o relatório de saldo do ERP para conferir, cadastrar e atualizar o estoque do sistema. Primeiro o sistema gera uma prévia; depois o admin escolhe se aplica ou não.</p>
+          <div class="erp-file-hint">
+            Formato reconhecido: relatório com colunas <strong>Código Item</strong>, <strong>Código Barras</strong>, <strong>Descrição</strong>, <strong>Preço Custo</strong> e <strong>Saldo Qtd</strong>.
+          </div>
+        </div>
+        <form class="erp-upload-box" method="post" action="{{ url_for('importar_estoque_erp_preview') }}" enctype="multipart/form-data">
+          <label class="stock-label">Arquivo gerado pelo ERP</label>
+          <input type="file" name="arquivo_erp" accept=".xls,.xlsx,.xlsm" required>
+          <button type="submit">Ler arquivo e gerar prévia</button>
+          <span class="mini">Nada é alterado no estoque nessa etapa.</span>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {% if importacao %}
+  <div class="wrap" style="margin-top:16px;">
+    <div class="card">
+      <div class="stock-results-head">
+        <div>
+          <h2 class="section-title" style="margin-bottom:6px;">Prévia da importação #{{ importacao.id }}</h2>
+          <div class="mini">Arquivo: {{ importacao.filename }} • Loja: {{ importacao.loja or '-' }} • Data base: {{ importacao.data_base or '-' }} • Criado por {{ importacao.usuario_nome or importacao.usuario_login or 'Sistema' }}</div>
+        </div>
+        <span class="badge {% if importacao.status == 'APLICADO' %}badge-admin{% else %}badge-conferente{% endif %}">{{ importacao.status }}</span>
+      </div>
+
+      <div class="erp-summary-grid">
+        <div class="stat"><span>Produtos lidos</span><strong>{{ importacao.total_produtos }}</strong></div>
+        <div class="stat"><span>Novos no sistema</span><strong>{{ resumo.get('novos', 0) }}</strong></div>
+        <div class="stat"><span>Saldo diferente</span><strong>{{ resumo.get('alterar_saldo', 0) }}</strong></div>
+        <div class="stat"><span>Sem alteração</span><strong>{{ resumo.get('sem_alteracao', 0) }}</strong></div>
+        <div class="stat"><span>Delta total</span><strong>{{ fmt_num(resumo.get('delta_total', 0)) }}</strong></div>
+        <div class="stat"><span>Duplicados removidos</span><strong>{{ importacao.duplicados }}</strong></div>
+      </div>
+
+      {% if importacao.status != 'APLICADO' %}
+      <form method="post" action="{{ url_for('aplicar_importacao_erp', import_id=importacao.id) }}" class="erp-apply-box" onsubmit="return confirm('Confirma aplicar essa importação no estoque? Essa ação vai registrar movimentações e atualizar os produtos conforme o modo escolhido.');">
+        <div>
+          <label class="stock-label">Modo de aplicação</label>
+          <select name="modo">
+            {% for key, label in modos %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <button type="submit">Aplicar no estoque</button>
+      </form>
+      {% else %}
+      <div class="erp-applied-note">Importação aplicada em {{ importacao.aplicado_em }}. Modo usado: {{ importacao.modo or '-' }}.</div>
+      {% endif %}
+
+      <div class="stock-export-actions">
+        <a class="btn btn-secondary" href="{{ url_for('exportar_importacao_erp_excel', import_id=importacao.id) }}">Exportar Excel</a>
+        <a class="btn btn-secondary" href="{{ url_for('exportar_importacao_erp_pdf', import_id=importacao.id) }}">Exportar PDF</a>
+        <button class="btn-secondary" type="button" onclick="window.print()">Imprimir</button>
+        <a class="btn btn-danger" href="{{ '/estoque/importar-erp/%s/remover' % importacao.id }}">Remover importação</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap" style="margin-top:16px;">
+    <div class="card">
+      <div class="stock-results-head">
+        <div>
+          <h2 class="section-title" style="margin-bottom:6px;">Itens da prévia</h2>
+          <div class="mini">Mostrando até 500 itens. Use o filtro para localizar código, descrição, linha ou status.</div>
+        </div>
+        <span class="mini">{{ itens|length }} item(ns) na tela</span>
+      </div>
+      <form method="get" class="stock-history-filters">
+        <div>
+          <label class="stock-label">Filtro</label>
+          <input type="text" name="filtro" value="{{ filtro or '' }}" placeholder="NOVO, ALTERAR_SALDO, código, nome ou linha">
+        </div>
+        <div class="stock-search-actions stock-history-filter-actions">
+          <button class="btn-secondary" type="submit">Filtrar</button>
+          <a class="btn btn-secondary" href="{{ url_for('detalhe_importacao_erp', import_id=importacao.id) }}">Limpar</a>
+        </div>
+      </form>
+
+      <div class="erp-table-wrap">
+        <table class="erp-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Linha</th>
+              <th>Código</th>
+              <th>Descrição</th>
+              <th>Anterior</th>
+              <th>ERP</th>
+              <th>Delta</th>
+              <th>Custo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in itens %}
+            <tr>
+              <td><span class="erp-status erp-status-{{ item.status|lower|replace('_','-') }}">{{ item.status }}</span></td>
+              <td>{{ item.linha or '-' }}</td>
+              <td><strong>{{ item.codigo }}</strong><br><span class="mini">{{ item.codigo_barras or '-' }}</span></td>
+              <td>{{ item.descricao }}</td>
+              <td>{{ fmt_num(item.saldo_anterior or 0) }}</td>
+              <td>{{ fmt_num(item.saldo_qtd) }}</td>
+              <td class="{% if item.delta > 0 %}is-positive-text{% elif item.delta < 0 %}is-negative-text{% endif %}">{% if item.delta > 0 %}+{% endif %}{{ fmt_num(item.delta or 0) }}</td>
+              <td>{{ fmt_money(item.preco_custo or 0) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="empty">Nenhum item encontrado com esse filtro.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="wrap" style="margin-top:16px;">
+    <div class="card">
+      <h2 class="section-title">Importações recentes</h2>
+      {% if importacoes %}
+      <div class="stock-history-list">
+        {% for imp in importacoes %}
+        <article class="stock-history-item">
+          <div class="stock-history-main">
+            <div class="stock-history-top">
+              <strong><a href="{{ url_for('detalhe_importacao_erp', import_id=imp.id) }}">#{{ imp.id }} • {{ imp.filename }}</a></strong>
+              <span class="stock-history-badge is-neutral">{{ imp.status }}</span>
+            </div>
+            <div class="stock-history-desc">{{ imp.total_produtos }} produto(s) • Loja {{ imp.loja or '-' }} • Data base {{ imp.data_base or '-' }}</div>
+            <div class="stock-history-meta">
+              <span><strong>Criado:</strong> {{ imp.criado_em }}</span>
+              {% if imp.aplicado_em %}<span><strong>Aplicado:</strong> {{ imp.aplicado_em }}</span>{% endif %}
+              <span><strong>Usuário:</strong> {{ imp.usuario_nome or imp.usuario_login or 'Sistema' }}</span>
+            </div>
+          </div>
+          <div class="stock-export-actions" style="justify-content:flex-end;margin-top:10px;">
+            <a class="btn btn-secondary" href="{{ url_for('detalhe_importacao_erp', import_id=imp.id) }}">Abrir</a>
+            {% if g.user and g.user.role == 'admin' %}
+            <a class="btn btn-danger" href="{{ '/estoque/importar-erp/%s/remover' % imp.id }}">Remover</a>
+            {% endif %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty stock-empty-state">Nenhuma importação feita ainda.</div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

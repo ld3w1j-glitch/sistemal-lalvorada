@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main">
+  <div class="wrap">
+    <div class="card" style="max-width:720px;margin:0 auto;">
+      <h1 class="section-title">Remover balanço criado</h1>
+      <p class="muted">Confira os dados antes de remover a contagem. Essa ação remove o balanço e os itens registrados nele.</p>
+      <div class="stock-empty-state" style="margin:16px 0;">
+        <strong>Contagem:</strong> #{{ balanco.id }} — {{ balanco.titulo }}<br>
+        <strong>Status:</strong> {{ balanco.status }}<br>
+        <strong>Criado por:</strong> {{ balanco.criado_por_nome or '-' }}<br>
+        <strong>Criado em:</strong> {{ balanco.criado_em }}<br>
+        <strong>Itens:</strong> {{ resumo.total_itens or 0 }}<br>
+        <strong>Divergências:</strong> {{ resumo.divergencias or 0 }}
+      </div>
+      {% if balanco.status == 'CONFIRMADO' %}
+      <div class="alert alert-warning" style="margin-bottom:16px;">
+        Atenção: este balanço já foi confirmado. Remover o registro não desfaz automaticamente o estoque.
+      </div>
+      {% endif %}
+      <form method="post" action="{{ url_for('remover_balanco', balance_id=balanco.id) }}">
+        <label>Confirme sua senha de admin</label>
+        <input type="password" name="senha_admin" placeholder="Senha do admin" required autocomplete="current-password">
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+          <a class="btn btn-secondary" href="{{ url_for('balancos') }}">Cancelar</a>
+          <button type="submit" style="background:#dc2626; border-color:#dc2626; color:white;">Sim, remover balanço</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}

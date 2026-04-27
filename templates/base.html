@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or 'Controle de Separação' }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}?v=4">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='img/favicon-16.png') }}?v=4">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='img/favicon.ico') }}?v=4">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}?v=4">
+</head>
+<body>
+  {% if g.user %}
+    {% include 'partials/_topbar.html' %}
+    {% if g.maintenance_mode and user_is_admin(g.user) %}
+      <div class="maintenance-admin-banner">Modo manutenção ativo: usuários comuns verão a página de manutenção.</div>
+    {% endif %}
+  {% endif %}
+
+  <div class="wrap flash-wrap">
+    {% include 'partials/_flash.html' %}
+  </div>
+
+  {% block content %}{% endblock %}
+
+  {% if g.user and user_has_access(g.user, 'mcp_teste') and request.endpoint not in ['login', 'mcp_teste'] %}
+    {% include 'partials/_assistente_flutuante.html' %}
+  {% endif %}
+</body>
+</html>

@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main">
+  <div class="wrap">
+    <div class="stock-results-head" style="margin-bottom:14px;">
+      <div>
+        <h1 class="section-title" style="margin-bottom:4px;">{{ balanco.titulo }}</h1>
+        <p class="muted" style="margin:0;">Balanço #{{ balanco.id }} • Status: {{ balanco.status }} • Criado em {{ balanco.criado_em }}</p>
+      </div>
+      <div class="stock-search-actions">
+        <a class="btn btn-secondary" href="{{ url_for('balancos') }}">Voltar</a>
+        <button class="btn btn-secondary" onclick="window.print()" type="button">Imprimir</button>
+        <a class="btn btn-secondary" href="{{ url_for('exportar_balanco_excel', balance_id=balanco.id) }}">Excel</a>
+        <a class="btn btn-secondary" href="{{ url_for('exportar_balanco_pdf', balance_id=balanco.id) }}">PDF</a>
+      </div>
+    </div>
+    <div class="grid-4">
+      <div class="card"><span class="mini">Itens contados</span><h2>{{ resumo.total }}</h2></div>
+      <div class="card"><span class="mini">Divergências</span><h2>{{ resumo.divergentes }}</h2></div>
+      <div class="card"><span class="mini">Sobras</span><h2>{{ resumo.sobras }}</h2></div>
+      <div class="card"><span class="mini">Faltas</span><h2>{{ resumo.faltas }}</h2></div>
+    </div>
+    {% if balanco.status == 'ABERTO' %}
+    <div class="card" style="margin-top:16px;">
+      <h2 class="section-title">Registrar mercadoria contada</h2>
+      <form method="post" class="stock-search-form">
+        <input type="text" id="codigo_balanco" name="codigo" placeholder="Código ou código de barras" autocomplete="off" autofocus required>
+        <input type="text" name="quantidade_contada" placeholder="Quantidade contada" required>
+        <select name="modo">
+          <option value="substituir">Substituir contagem do item</option>
+          <option value="somar">Somar com contagem já lançada</option>
+        </select>
+        <button type="submit">Registrar</button>
+      </form>
+      <p class="mini">Dica: use “somar” quando contar o mesmo produto em mais de um local do estoque.</p>
+    </div>
+    {% endif %}
+    <div class="card" style="margin-top:16px;">
+      <div class="stock-results-head">
+        <div>
+          <h2 class="section-title" style="margin:0;">Relatório de comparação</h2>
+          <p class="muted" style="margin:4px 0 0;">Compare antes de confirmar. A coluna diferença mostra o que vai entrar ou sair do estoque.</p>
+        </div>
+        {% if balanco.status == 'ABERTO' and can_edit_stock_registration(g.user) and items %}
+        <form method="post" action="{{ url_for('confirmar_balanco', balance_id=balanco.id) }}" onsubmit="return confirm('Confirmar balanço e atualizar o estoque com as quantidades contadas?')">
+          <button class="btn-danger" type="submit">Confirmar e atualizar estoque</button>
+        </form>
+        {% endif %}
+      </div>
+      {% if items %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Linha</th><th>Código</th><th>Descrição</th><th>Qtd sistema</th><th>Qtd contada</th><th>Diferença</th><th>Custo</th><th>Valor diferença</th>{% if balanco.status == 'ABERTO' %}<th class="no-print"></th>{% endif %}</tr></thead>
+          <tbody>
+            {% for i in items %}
+            <tr class="{% if i.delta > 0 %}row-positive{% elif i.delta < 0 %}row-negative{% endif %}">
+              <td>{{ i.linha_erp or '-' }}</td>
+              <td>{{ i.codigo }}</td>
+              <td>{{ i.descricao }}</td>
+              <td>{{ fmt_num(i.quantidade_sistema) }}</td>
+              <td><strong>{{ fmt_num(i.quantidade_contada) }}</strong></td>
+              <td><strong>{{ fmt_num(i.delta) }}</strong></td>
+              <td>R$ {{ fmt_num(i.custo_unitario) }}</td>
+              <td>R$ {{ fmt_num((i.delta or 0) * (i.custo_unitario or 0)) }}</td>
+              {% if balanco.status == 'ABERTO' %}
+              <td class="no-print">
+                <form method="post" action="{{ url_for('remover_item_balanco', balance_id=balanco.id, item_id=i.id) }}" onsubmit="return confirm('Remover este item da contagem?')">
+                  <button class="btn-danger" type="submit">Remover</button>
+                </form>
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div class="empty">Nenhum item contado ainda.</div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+<style>
+@media print {
+  .topbar, .flash-wrap, .no-print, .stock-search-actions, form, .assistente-flutuante { display:none !important; }
+  body { background:#fff !important; }
+  .card { box-shadow:none !important; border:1px solid #ddd !important; break-inside:avoid; }
+}
+.row-positive td { background: rgba(63, 126, 51, .08); }
+.row-negative td { background: rgba(180, 40, 40, .08); }
+</style>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block content %}
+<main class="wrap page">
+  <section class="card maintenance-page">
+    <span class="eyebrow">Sistema Alvorada</span>
+    <h1>Sistema em manutenção</h1>
+    <p>O acesso está temporariamente bloqueado para usuários comuns enquanto o administrador faz ajustes.</p>
+    <p class="muted">Tente novamente em alguns minutos ou fale com o responsável pelo sistema.</p>
+    <a class="btn" href="{{ url_for('login') }}">Ir para login</a>
+  </section>
+</main>
+{% endblock %}

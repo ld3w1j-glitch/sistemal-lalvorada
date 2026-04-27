@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="main"><div class="wrap">
+  <div class="card">
+    <h1 class="section-title">Configurações</h1>
+    <form method="post">
+      <label class="check-line"><input type="checkbox" name="vincular_estoque" value="1" {% if vincular_estoque %}checked{% endif %}> Vincular estoque às separações</label>
+      <label class="check-line"><input type="checkbox" name="usar_conferente" value="1" {% if usar_conferente %}checked{% endif %}> Exigir conferente</label>
+      <label class="check-line"><input type="checkbox" name="maintenance_mode" value="1" {% if maintenance_mode %}checked{% endif %}> Ativar modo manutenção para usuários comuns</label>
+      <label class="check-line"><input type="checkbox" name="code_editor_extra_password" value="1" {% if code_editor_extra_password %}checked{% endif %}> Exigir senha atual para salvar/restaurar código fonte</label>
+      <button type="submit">Salvar configurações</button>
+    </form>
+  </div>
+
+  <div class="card mcp-card">
+    <div class="mcp-head">
+      <div>
+        <p class="eyebrow">Integração com IA</p>
+        <h2 class="section-title">Servidor MCP do Sistema Alvorada</h2>
+      </div>
+      <span class="badge badge-admin">Modo leitura</span>
+    </div>
+
+    <p class="muted">
+      O MCP permite que uma IA compatível consulte o estoque, lotes, lojas e movimentações do sistema sem alterar o banco de dados.
+    </p>
+
+    <div class="grid-2 mcp-info-grid">
+      <div class="mini-panel">
+        <strong>Comando para iniciar</strong>
+        <code>{{ mcp_command }}</code>
+      </div>
+      <div class="mini-panel">
+        <strong>Banco conectado</strong>
+        <code>{{ mcp_db_path }}</code>
+      </div>
+    </div>
+
+    <div class="mini-panel">
+      <strong>Ferramentas disponíveis para a IA</strong>
+      <p class="mini">status_sistema, consultar_produto, listar_produtos_estoque, listar_estoque_baixo, listar_lojas, listar_lotes_abertos, consultar_lote e listar_movimentacoes_estoque.</p>
+    </div>
+
+    <p class="mini">
+      Arquivo de instruções: <strong>README_MCP.md</strong>. Exemplo de configuração: <strong>mcp_config_exemplo.json</strong>.
+    </p>
+  </div>
+</div></section>
+{% endblock %}

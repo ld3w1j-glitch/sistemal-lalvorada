@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block content %}
+<main class="wrap page">
+  <section class="card">
+    <div class="section-title" style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+      <div>
+        <span class="eyebrow">Segurança</span>
+        <h1>Auditoria do sistema</h1>
+        <p class="muted">Registro de logins, exportações, erros, configurações, ações MCP e alterações de código.</p>
+      </div>
+      {% if g.user and user_is_admin(g.user) %}
+        <span class="badge">Admin: exclusão segura habilitada</span>
+      {% endif %}
+    </div>
+
+    <form method="get" class="inline" style="margin:12px 0 18px; gap:10px; align-items:end;">
+      <div style="min-width:220px; flex:1;">
+        <label>Busca geral</label>
+        <input type="search" name="q" value="{{ q }}" placeholder="Buscar usuário, arquivo, ação ou detalhe">
+      </div>
+      <div>
+        <label>Ação</label>
+        <select name="action">
+          <option value="">Todas as ações</option>
+          {% for item in actions %}
+            <option value="{{ item.action }}" {% if action == item.action %}selected{% endif %}>{{ item.action }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Usuário</label>
+        <input type="search" name="usuario" value="{{ usuario }}" placeholder="Nome ou login">
+      </div>
+      <div>
+        <label>De</label>
+        <input type="date" name="data_inicio" value="{{ data_inicio }}">
+      </div>
+      <div>
+        <label>Até</label>
+        <input type="date" name="data_fim" value="{{ data_fim }}">
+      </div>
+      <button class="btn" type="submit">Filtrar</button>
+      <a class="btn btn-secondary" href="{{ url_for('auditoria') }}">Limpar</a>
+    </form>
+
+    {% if g.user and user_is_admin(g.user) %}
+    <div class="card soft" style="margin: 0 0 16px; padding: 14px;">
+      <h3 style="margin-top:0;">Excluir auditoria selecionada</h3>
+      <p class="muted">Selecione os registros na tabela abaixo. Antes de excluir, o sistema cria um backup JSON em <code>backups/auditoria/</code> e registra uma nova ação <strong>AUDITORIA_REMOVIDA</strong>.</p>
+      <div class="inline" style="gap:10px;">
+        <button class="btn btn-secondary" type="button" onclick="selecionarAuditoria(true)">Selecionar tudo visível</button>
+        <button class="btn btn-secondary" type="button" onclick="selecionarAuditoria(false)">Limpar seleção</button>
+      </div>
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('excluir_auditoria') }}" onsubmit="return confirmarExclusaoAuditoria();">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              {% if g.user and user_is_admin(g.user) %}<th style="width:42px;">Sel.</th>{% endif %}
+              <th>ID</th>
+              <th>Data</th>
+              <th>Usuário</th>
+              <th>Ação</th>
+              <th>Entidade</th>
+              <th>Referência</th>
+              <th>Detalhes</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for log in logs %}
+            <tr>
+              {% if g.user and user_is_admin(g.user) %}
+              <td><input class="audit-check" type="checkbox" name="ids" value="{{ log.id }}"></td>
+              {% endif %}
+              <td>{{ log.id }}</td>
+              <td>{{ log.created_at }}</td>
+              <td>{{ log.usuario_nome or log.usuario_login or 'Sistema' }}</td>
+              <td><span class="badge">{{ log.action }}</span></td>
+              <td>{{ log.entity_type or '-' }}</td>
+              <td>{{ log.entity_ref or '-' }}</td>
+              <td><code class="audit-details">{{ log.details }}</code></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="{% if g.user and user_is_admin(g.user) %}8{% else %}7{% endif %}" class="empty">Nenhum registro encontrado.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if g.user and user_is_admin(g.user) %}
+      <div class="card danger-zone" style="margin-top:16px; padding:16px; border:1px solid rgba(220,38,38,.35);">
+        <h3 style="margin-top:0;">Confirmar exclusão</h3>
+        <p class="muted">Use apenas quando realmente precisar limpar registros específicos. O backup é criado automaticamente antes da remoção.</p>
+        <label>Motivo da exclusão</label>
+        <input type="text" name="motivo" placeholder="Ex.: limpeza de registros de teste" maxlength="500">
+        <label style="margin-top:10px;">Senha do admin</label>
+        <input type="password" name="senha_admin" placeholder="Digite sua senha para confirmar">
+        <button class="btn" type="submit" style="margin-top:12px;">Excluir selecionados com backup</button>
+      </div>
+      {% endif %}
+    </form>
+  </section>
+</main>
+
+<script>
+function selecionarAuditoria(marcado) {
+  document.querySelectorAll('.audit-check').forEach(function (item) {
+    item.checked = marcado;
+  });
+}
+
+function confirmarExclusaoAuditoria() {
+  const selecionados = document.querySelectorAll('.audit-check:checked').length;
+  if (!selecionados) {
+    alert('Selecione pelo menos um registro de auditoria.');
+    return false;
+  }
+  return confirm('Tem certeza que deseja excluir ' + selecionados + ' registro(s) de auditoria? Um backup será criado antes da exclusão.');
+}
+</script>
+{% endblock %}

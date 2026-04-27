@@ -1,0 +1,279 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero">
+  <div class="wrap">
+    <div class="card">
+      <h1 class="hero-title">Recebimento de mercadorias</h1>
+      <p class="hero-text">Área dos conferentes para registrar nota, produtos recebidos, validade, quantidade, usuário responsável e horário do recebimento.</p>
+    </div>
+  </div>
+</section>
+
+<main class="main">
+  <div class="wrap grid-2 recebimento-layout">
+    <section class="card">
+      <div class="toolbar">
+        <div>
+          <h2 class="section-title">Nova conferência</h2>
+          <p class="mini">Conferente: <strong>{{ g.user['nome'] }}</strong></p>
+        </div>
+        <span class="badge badge-conferente" id="contador-itens">0 itens</span>
+      </div>
+
+      <form method="post" id="form-recebimento">
+        <label>
+          <span class="op-label">Número da nota</span>
+          <input name="nota_numero" id="nota_numero" placeholder="Ex: 123456" required autocomplete="off">
+        </label>
+
+        <div class="op-box recebimento-scanner-box">
+          <div class="toolbar">
+            <div>
+              <strong>Leitor por câmera</strong>
+              <p class="mini">Funciona melhor no Chrome/Android com permissão de câmera.</p>
+            </div>
+            <button type="button" class="btn-secondary" id="btn-camera">Abrir câmera</button>
+          </div>
+          <video id="camera-preview" class="camera-preview" playsinline muted hidden></video>
+          <p class="mini" id="camera-status">Você também pode digitar o código manualmente.</p>
+        </div>
+
+        <div class="inline">
+          <label>
+            <span class="op-label">Código / código de barras</span>
+            <input id="codigo" placeholder="Digite ou leia pela câmera" autocomplete="off">
+          </label>
+          <label>
+            <span class="op-label">Validade</span>
+            <input id="validade" type="date">
+          </label>
+          <label>
+            <span class="op-label">Quantidade</span>
+            <input id="quantidade" inputmode="decimal" placeholder="Ex: 12">
+          </label>
+        </div>
+
+        <div class="op-box" id="produto-preview">
+          <strong>Produto ainda não consultado</strong>
+          <p class="mini">Informe o código para buscar no estoque. Se não encontrar, o item fica registrado como não cadastrado.</p>
+        </div>
+
+        <div class="inline">
+          <button type="button" class="btn-warning" id="btn-adicionar">Adicionar item</button>
+          <button type="button" class="btn-secondary" id="btn-limpar">Limpar campos</button>
+        </div>
+
+        <input type="hidden" name="itens_json" id="itens_json" value="[]">
+
+        <label>
+          <span class="op-label">Observação</span>
+          <textarea name="observacao" placeholder="Ex: mercadoria chegou com atraso, caixa avariada, divergência..."></textarea>
+        </label>
+
+        <button type="submit">Finalizar recebimento</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2 class="section-title">Itens desta nota</h2>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Produto</th>
+              <th>Validade</th>
+              <th>Qtd.</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tabela-itens">
+            <tr><td colspan="5" class="empty">Nenhum item adicionado.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="wrap" style="margin-top:16px">
+    <section class="card">
+      <h2 class="section-title">Últimos recebimentos</h2>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Nota</th>
+              <th>Conferente</th>
+              <th>Horário</th>
+              <th>Itens</th>
+              <th>Quantidade total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in recebimentos %}
+              <tr>
+                <td><strong>{{ r['nota_numero'] }}</strong></td>
+                <td>{{ r['conferente_nome'] or 'Não informado' }}</td>
+                <td>{{ r['finalizado_em'] }}</td>
+                <td>{{ r['total_itens'] }}</td>
+                <td>{{ fmt_num(r['total_quantidade']) }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5" class="empty">Nenhum recebimento registrado ainda.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+(function(){
+  const itens = [];
+  let produtoAtual = null;
+  let stream = null;
+  let scanning = false;
+
+  const codigo = document.getElementById('codigo');
+  const validade = document.getElementById('validade');
+  const quantidade = document.getElementById('quantidade');
+  const preview = document.getElementById('produto-preview');
+  const tabela = document.getElementById('tabela-itens');
+  const itensJson = document.getElementById('itens_json');
+  const contador = document.getElementById('contador-itens');
+  const video = document.getElementById('camera-preview');
+  const cameraStatus = document.getElementById('camera-status');
+  const btnCamera = document.getElementById('btn-camera');
+
+  function escapeHtml(text) {
+    return String(text || '').replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];
+    });
+  }
+
+  function limparCampos() {
+    codigo.value = '';
+    validade.value = '';
+    quantidade.value = '';
+    produtoAtual = null;
+    preview.innerHTML = '<strong>Produto ainda não consultado</strong><p class="mini">Informe o código para buscar no estoque.</p>';
+    codigo.focus();
+  }
+
+  async function buscarProduto() {
+    const valor = codigo.value.trim();
+    produtoAtual = null;
+    if (!valor) return;
+    preview.innerHTML = '<strong>Consultando...</strong><p class="mini">Buscando produto no estoque.</p>';
+    try {
+      const resp = await fetch('{{ url_for("api_estoque_produto") }}?codigo=' + encodeURIComponent(valor));
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'Produto não encontrado.');
+      produtoAtual = data.produto;
+      preview.innerHTML = '<strong>' + escapeHtml(produtoAtual.descricao) + '</strong>' +
+        '<p class="mini">Código: ' + escapeHtml(produtoAtual.codigo) +
+        (produtoAtual.codigo_barras ? ' • Barras: ' + escapeHtml(produtoAtual.codigo_barras) : '') +
+        ' • Estoque atual: ' + escapeHtml(produtoAtual.quantidade_atual) + '</p>';
+    } catch (err) {
+      preview.innerHTML = '<strong>Produto não cadastrado</strong><p class="mini">Ele será registrado na nota, mas não vai somar no estoque até ser cadastrado.</p>';
+    }
+  }
+
+  function renderTabela() {
+    itensJson.value = JSON.stringify(itens);
+    contador.textContent = itens.length + (itens.length === 1 ? ' item' : ' itens');
+    if (!itens.length) {
+      tabela.innerHTML = '<tr><td colspan="5" class="empty">Nenhum item adicionado.</td></tr>';
+      return;
+    }
+    tabela.innerHTML = itens.map(function(item, idx){
+      return '<tr>' +
+        '<td><strong>' + escapeHtml(item.codigo) + '</strong></td>' +
+        '<td>' + escapeHtml(item.descricao || 'Produto não cadastrado') + '</td>' +
+        '<td>' + escapeHtml(item.validade || '-') + '</td>' +
+        '<td>' + escapeHtml(item.quantidade) + '</td>' +
+        '<td><button type="button" class="btn-danger btn-mini" data-remove="' + idx + '">Remover</button></td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  document.getElementById('btn-adicionar').addEventListener('click', async function(){
+    if (!codigo.value.trim()) { codigo.focus(); return; }
+    if (!quantidade.value.trim()) { quantidade.focus(); return; }
+    if (!produtoAtual) await buscarProduto();
+    itens.push({
+      codigo: codigo.value.trim(),
+      descricao: produtoAtual ? produtoAtual.descricao : 'Produto não cadastrado',
+      validade: validade.value,
+      quantidade: quantidade.value.trim()
+    });
+    renderTabela();
+    limparCampos();
+  });
+
+  document.getElementById('btn-limpar').addEventListener('click', limparCampos);
+  codigo.addEventListener('change', buscarProduto);
+  tabela.addEventListener('click', function(ev){
+    const btn = ev.target.closest('[data-remove]');
+    if (!btn) return;
+    itens.splice(Number(btn.dataset.remove), 1);
+    renderTabela();
+  });
+
+  document.getElementById('form-recebimento').addEventListener('submit', function(ev){
+    if (!itens.length) {
+      ev.preventDefault();
+      alert('Adicione pelo menos um item antes de finalizar.');
+    }
+  });
+
+  async function iniciarCamera() {
+    if (!('BarcodeDetector' in window)) {
+      cameraStatus.textContent = 'Este navegador não tem leitor nativo. Digite o código manualmente ou use Chrome/Android atualizado.';
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      video.srcObject = stream;
+      video.hidden = false;
+      await video.play();
+      btnCamera.textContent = 'Fechar câmera';
+      cameraStatus.textContent = 'Aponte para o código de barras.';
+      scanning = true;
+      const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e'] });
+      async function loop() {
+        if (!scanning) return;
+        try {
+          const codes = await detector.detect(video);
+          if (codes.length) {
+            codigo.value = codes[0].rawValue || '';
+            cameraStatus.textContent = 'Código lido: ' + codigo.value;
+            await buscarProduto();
+            pararCamera();
+            quantidade.focus();
+            return;
+          }
+        } catch (e) {}
+        requestAnimationFrame(loop);
+      }
+      loop();
+    } catch (err) {
+      cameraStatus.textContent = 'Não foi possível acessar a câmera. Verifique a permissão do navegador.';
+    }
+  }
+
+  function pararCamera() {
+    scanning = false;
+    if (stream) stream.getTracks().forEach(function(track){ track.stop(); });
+    stream = null;
+    video.hidden = true;
+    btnCamera.textContent = 'Abrir câmera';
+  }
+
+  btnCamera.addEventListener('click', function(){
+    if (stream) pararCamera(); else iniciarCamera();
+  });
+})();
+</script>
+{% endblock %}

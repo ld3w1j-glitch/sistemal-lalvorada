@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block content %}
+<main class="wrap page">
+  <section class="card">
+    <div class="section-title" style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <div>
+        <span class="eyebrow">Relatório inteligente</span>
+        <h1>Relatório gerencial</h1>
+        <p class="muted">Resumo automático dos últimos {{ dados.periodo }} dias • Gerado em {{ dados.gerado_em }}</p>
+      </div>
+      <div class="inline">
+        <form method="get" class="inline">
+          <select name="periodo">
+            {% for dias in [7, 15, 30, 60, 90] %}
+              <option value="{{ dias }}" {% if dados.periodo == dias %}selected{% endif %}>{{ dias }} dias</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-secondary" type="submit">Atualizar</button>
+        </form>
+        <a class="btn" href="{{ url_for('relatorio_gerencial_pdf', periodo=dados.periodo) }}">Exportar PDF</a>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><span>Separações</span><strong>{{ dados.resumo.separacoes or 0 }}</strong></div>
+      <div class="stat"><span>Lotes</span><strong>{{ dados.resumo.lotes or 0 }}</strong></div>
+      <div class="stat"><span>Qtd. separada</span><strong>{{ fmt_num(dados.resumo.quantidade or 0) }}</strong></div>
+      <div class="stat"><span>Custo separado</span><strong>{{ fmt_money(dados.resumo.custo or 0) }}</strong></div>
+      <div class="stat"><span>Produtos ativos</span><strong>{{ dados.estoque.produtos or 0 }}</strong></div>
+      <div class="stat"><span>Itens zerados</span><strong>{{ dados.estoque.zerados or 0 }}</strong></div>
+      <div class="stat"><span>Estoque baixo</span><strong>{{ dados.estoque.baixo or 0 }}</strong></div>
+      <div class="stat"><span>Valor estoque</span><strong>{{ fmt_money(dados.estoque.valor_estoque or 0) }}</strong></div>
+    </div>
+  </section>
+
+  <section class="grid-2">
+    <div class="card">
+      <h2 class="section-title">Observações automáticas</h2>
+      {% for obs in dados.observacoes %}
+        <p class="mcp-alert">{{ obs }}</p>
+      {% endfor %}
+      <div class="mini-panel">
+        <strong>Texto para WhatsApp</strong>
+        <p>Resumo do estoque: {{ dados.estoque.zerados or 0 }} item(ns) zerado(s), {{ dados.estoque.baixo or 0 }} com saldo baixo, valor estimado em {{ fmt_money(dados.estoque.valor_estoque or 0) }}.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Lojas no período</h2>
+      <div class="table-responsive"><table>
+        <thead><tr><th>Loja</th><th>Quantidade</th><th>Custo</th></tr></thead>
+        <tbody>
+        {% for loja in dados.lojas %}
+          <tr><td>{{ loja.loja }}</td><td>{{ fmt_num(loja.quantidade or 0) }}</td><td>{{ fmt_money(loja.custo or 0) }}</td></tr>
+        {% else %}
+          <tr><td colspan="3" class="empty">Sem lojas no período.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <section class="grid-2">
+    <div class="card">
+      <h2 class="section-title">Itens mais movimentados</h2>
+      <div class="table-responsive"><table>
+        <thead><tr><th>Código</th><th>Descrição</th><th>Quantidade</th><th>Custo</th></tr></thead>
+        <tbody>
+        {% for item in dados.top_itens %}
+          <tr><td>{{ item.codigo }}</td><td>{{ item.descricao }}</td><td>{{ fmt_num(item.quantidade or 0) }}</td><td>{{ fmt_money(item.custo or 0) }}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="empty">Sem movimentações no período.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Itens críticos</h2>
+      <div class="table-responsive"><table>
+        <thead><tr><th>Código</th><th>Descrição</th><th>Saldo</th><th>Atualizado</th></tr></thead>
+        <tbody>
+        {% for item in dados.criticos %}
+          <tr><td>{{ item.codigo }}</td><td>{{ item.descricao }}</td><td>{{ fmt_num(item.quantidade_atual or 0) }}</td><td>{{ item.atualizado_em }}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="empty">Nenhum item crítico.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+</main>
+
+{% with assistente_contexto='relatorios', assistente_titulo='Assistente IA do Relatório Gerencial', assistente_linha='' %}
+{% include 'partials/_assistente_ia.html' %}
+{% endwith %}
+{% endblock %}

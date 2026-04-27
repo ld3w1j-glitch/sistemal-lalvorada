@@ -1,0 +1,117 @@
+<div class="floating-ai" id="floating-ai" data-context="{{ request.endpoint or 'mcp_teste' }}">
+  <button type="button" class="floating-ai-button" id="floating-ai-toggle">IA</button>
+  <section class="floating-ai-panel" id="floating-ai-panel" aria-live="polite">
+    <div class="floating-ai-head">
+      <div>
+        <strong>Assistente MCP/IA</strong>
+        <span>Consulta contextual do sistema</span>
+      </div>
+      <button type="button" id="floating-ai-close">×</button>
+    </div>
+    <div class="floating-ai-body">
+      <div class="floating-ai-suggestions" id="floating-ai-suggestions"></div>
+      <textarea id="floating-ai-input" rows="3" placeholder="Pergunte sobre esta tela..."></textarea>
+      <button type="button" class="btn" id="floating-ai-send">Consultar</button>
+      <div class="floating-ai-output is-empty" id="floating-ai-output">Abra o assistente e faça uma pergunta rápida sem sair da página.</div>
+    </div>
+  </section>
+</div>
+<script>
+(function(){
+  const box = document.getElementById('floating-ai');
+  if (!box) return;
+  const toggle = document.getElementById('floating-ai-toggle');
+  const closeBtn = document.getElementById('floating-ai-close');
+  const input = document.getElementById('floating-ai-input');
+  const send = document.getElementById('floating-ai-send');
+  const output = document.getElementById('floating-ai-output');
+  const suggestions = document.getElementById('floating-ai-suggestions');
+
+  const endpointToContext = {
+    dashboard: 'painel',
+    estoque: 'estoque',
+    listar_lotes: 'lotes',
+    detalhe_historico_lote: 'relatorios',
+    relatorios: 'relatorios',
+    relatorio_gerencial: 'relatorios',
+    admin_codigo_fonte: 'mcp_teste'
+  };
+  const ctx = endpointToContext[box.dataset.context] || 'mcp_teste';
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+  }
+
+  function setOpen(open){
+    box.classList.toggle('is-open', open);
+    if (open) input.focus();
+  }
+
+  async function loadSuggestions(){
+    try {
+      const resp = await fetch('{{ url_for('api_mcp_contexto') }}?contexto=' + encodeURIComponent(ctx));
+      const data = await resp.json();
+      const itens = (data.sugestoes || ['status do sistema']).slice(0, 4);
+      suggestions.innerHTML = itens.map(item => '<button type="button">' + escapeHtml(item) + '</button>').join('');
+      suggestions.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          input.value = btn.textContent;
+          ask();
+        });
+      });
+    } catch(err) {
+      suggestions.innerHTML = '';
+    }
+  }
+
+  async function ask(){
+    const mensagem = input.value.trim();
+    if (!mensagem) return;
+    output.classList.remove('is-empty');
+    output.innerHTML = 'Consultando...';
+    try {
+      const resp = await fetch('{{ url_for('api_mcp_perguntar') }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({contexto: ctx, mensagem, filtros: {limite: 30}})
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Erro na consulta.');
+      const table = data.table || {};
+      const rows = table.rows || [];
+      const cols = (table.columns || []).slice(0, 3);
+      let html = '<strong>' + escapeHtml(table.title || data.tool || 'Resultado') + '</strong><p>' + escapeHtml(data.answer || 'Consulta concluída.') + '</p>';
+      if (rows.length && cols.length) {
+        html += '<table><thead><tr>' + cols.map(c => '<th>' + escapeHtml((table.labels || {})[c] || c) + '</th>').join('') + '</tr></thead><tbody>';
+        rows.slice(0, 6).forEach(row => { html += '<tr>' + cols.map(c => '<td>' + escapeHtml(row[c] || '') + '</td>').join('') + '</tr>'; });
+        html += '</tbody></table>';
+      }
+      if (data.acoes_sugeridas && data.acoes_sugeridas.length) {
+        html += '<div class="floating-ai-actions">' + data.acoes_sugeridas.slice(0,3).map(a => '<button type="button" data-action="' + escapeHtml(a.type) + '">' + escapeHtml(a.label) + '</button>').join('') + '</div>';
+      }
+      output.innerHTML = html;
+      output.querySelectorAll('[data-action]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const r = await fetch('{{ url_for('api_mcp_preparar_acao') }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({contexto: ctx, action_type: btn.dataset.action, pergunta: mensagem, filtros: {limite: 30}})
+          });
+          const d = await r.json();
+          alert(d.mensagem || d.error || 'Ação preparada.');
+        });
+      });
+    } catch(err) {
+      output.innerHTML = '<div class="alert error">' + escapeHtml(err.message || err) + '</div>';
+    }
+  }
+
+  toggle.addEventListener('click', () => setOpen(!box.classList.contains('is-open')));
+  closeBtn.addEventListener('click', () => setOpen(false));
+  send.addEventListener('click', ask);
+  input.addEventListener('keydown', ev => {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') ask();
+  });
+  loadSuggestions();
+})();
+</script>

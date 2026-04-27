@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<main class="wrap page">
+  <section class="card error-page">
+    <span class="eyebrow">Tratamento inteligente de erro</span>
+    <h1>Ocorreu um erro no sistema</h1>
+    <p>O erro foi registrado para análise.</p>
+    <div class="mini-panel">
+      <strong>Código do erro:</strong> {{ error_id }}<br>
+      <strong>Página:</strong> {{ path }}<br>
+      <strong>Área:</strong> {{ endpoint }}
+    </div>
+    {% if is_admin %}
+      <div class="code-admin-warning">
+        <strong>Detalhe técnico:</strong> {{ detalhe }}
+      </div>
+    {% else %}
+      <p class="muted">Se o problema continuar, envie o código do erro para o administrador.</p>
+    {% endif %}
+    <a class="btn" href="{{ url_for('dashboard') }}">Voltar ao painel</a>
+  </section>
+</main>
+{% endblock %}
