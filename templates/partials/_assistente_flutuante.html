@@ -14,8 +14,15 @@
         <div class="floating-ai-msg bot">Bom dia! Pode conversar comigo normalmente. Eu também calculo e consulto o sistema.</div>
       </div>
       <div class="floating-ai-compose">
-        <textarea id="floating-ai-input" rows="2" placeholder="Digite aqui... Ex: quantos é 10+20"></textarea>
-        <button type="button" class="btn" id="floating-ai-send">Enviar</button>
+        <div class="floating-ai-attach-row" id="floating-ai-attach-row"></div>
+        <textarea id="floating-ai-input" rows="2" placeholder="Digite aqui... Ex: problema na loja, mercadoria sem nota, calcule 10+20"></textarea>
+        <div class="floating-ai-compose-actions">
+          <button type="button" class="floating-ai-icon-btn" id="floating-ai-file" title="Importar arquivo">📎</button>
+          <button type="button" class="floating-ai-icon-btn" id="floating-ai-photo" title="Tirar foto">📷</button>
+          <button type="button" class="btn" id="floating-ai-send">Enviar</button>
+        </div>
+        <input id="floating-ai-file-input" type="file" hidden>
+        <input id="floating-ai-photo-input" type="file" accept="image/*" capture="environment" hidden>
       </div>
     </div>
   </section>
@@ -28,6 +35,11 @@
   const closeBtn = document.getElementById('floating-ai-close');
   const input = document.getElementById('floating-ai-input');
   const send = document.getElementById('floating-ai-send');
+  const fileBtn = document.getElementById('floating-ai-file');
+  const photoBtn = document.getElementById('floating-ai-photo');
+  const fileInput = document.getElementById('floating-ai-file-input');
+  const photoInput = document.getElementById('floating-ai-photo-input');
+  const attachRow = document.getElementById('floating-ai-attach-row');
   const chat = document.getElementById('floating-ai-chat');
   const suggestions = document.getElementById('floating-ai-suggestions');
 
@@ -86,6 +98,41 @@
   }
 
   let issueWizard = null;
+  let pendingAttachments = [];
+
+
+  function renderAttachments() {
+    if (!attachRow) return;
+    if (!pendingAttachments.length) { attachRow.innerHTML = ''; return; }
+    attachRow.innerHTML = pendingAttachments.map((a, idx) =>
+      '<span class="floating-ai-attachment">' + escapeHtml(a.nome || 'arquivo') + '<button type="button" data-remove="' + idx + '">×</button></span>'
+    ).join('');
+    attachRow.querySelectorAll('[data-remove]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        pendingAttachments.splice(Number(btn.dataset.remove), 1);
+        renderAttachments();
+      });
+    });
+  }
+
+  async function uploadAttachment(file) {
+    if (!file) return;
+    const form = new FormData();
+    form.append('arquivo', file);
+    const uploading = addMsg('bot typing', 'Anexando arquivo...');
+    try {
+      const resp = await fetch('{{ url_for('api_mcp_anexar_temp') }}', {method: 'POST', body: form});
+      const data = await resp.json();
+      uploading.remove();
+      if (!resp.ok) throw new Error(data.error || 'Não foi possível anexar.');
+      pendingAttachments.push({nome: data.nome, url: data.url, path: data.path});
+      renderAttachments();
+      addMsg('bot', 'Arquivo anexado temporariamente: ' + data.nome + '. Ele será enviado junto se você finalizar uma ocorrência.');
+    } catch(err) {
+      uploading.remove();
+      addMsg('bot', 'Erro no anexo: ' + (err.message || err));
+    }
+  }
 
   function wantsIssueFlow(text) {
     const t = String(text || '').toLowerCase();
@@ -101,6 +148,7 @@
       nota_numero: '',
       relato: initialText || '',
       itens: [],
+      anexos: pendingAttachments.slice(),
       itemAtual: {}
     };
     const origem = issueWizard.loja ? ` Sua origem cadastrada é ${issueWizard.loja}.` : '';
@@ -114,7 +162,8 @@
     const itens = issueWizard.itens.length
       ? issueWizard.itens.map((i, idx) => `${idx+1}. ${i.codigo || i.codigo_barras || '-'} | ${i.descricao || '-'} | ${i.sinal || ''}${i.quantidade || i.diferenca || '-'}`).join('\n')
       : 'Nenhum item informado';
-    return `Destino: ${issueWizard.destino}\nTipo: ${tipoLabel}\nLoja: ${issueWizard.loja || '-'}\nNota: ${issueWizard.nota_numero || '-'}\nRelato: ${issueWizard.relato || '-'}\nItens:\n${itens}`;
+    const anexos = issueWizard.anexos && issueWizard.anexos.length ? issueWizard.anexos.map(a => a.nome || 'arquivo').join(', ') : 'Nenhum';
+    return `Destino: ${issueWizard.destino}\nTipo: ${tipoLabel}\nLoja: ${issueWizard.loja || '-'}\nNota: ${issueWizard.nota_numero || '-'}\nRelato: ${issueWizard.relato || '-'}\nAnexos: ${anexos}\nItens:\n${itens}`;
   }
 
   async function finalizarIssueWizard() {
@@ -124,7 +173,8 @@
       loja: issueWizard.loja,
       nota_numero: issueWizard.nota_numero,
       relato: issueWizard.relato,
-      itens: issueWizard.itens
+      itens: issueWizard.itens,
+      anexos: issueWizard.anexos || []
     };
     const resp = await fetch('{{ url_for('api_mcp_registrar_ocorrencia') }}', {
       method: 'POST',
@@ -134,6 +184,8 @@
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'Não foi possível registrar a ocorrência.');
     addMsg('bot', data.mensagem || 'Ocorrência enviada.');
+    pendingAttachments = [];
+    renderAttachments();
     if (data.redirect_url) {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -327,6 +379,10 @@
   toggle.addEventListener('click', () => setOpen(!box.classList.contains('is-open')));
   closeBtn.addEventListener('click', () => setOpen(false));
   send.addEventListener('click', ask);
+  if (fileBtn && fileInput) fileBtn.addEventListener('click', () => fileInput.click());
+  if (photoBtn && photoInput) photoBtn.addEventListener('click', () => photoInput.click());
+  if (fileInput) fileInput.addEventListener('change', () => { uploadAttachment(fileInput.files[0]); fileInput.value = ''; });
+  if (photoInput) photoInput.addEventListener('change', () => { uploadAttachment(photoInput.files[0]); photoInput.value = ''; });
   input.addEventListener('keydown', ev => {
     if (ev.key === 'Enter' && !ev.shiftKey) {
       ev.preventDefault();

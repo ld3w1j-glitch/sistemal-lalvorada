@@ -6108,6 +6108,37 @@ def _dados_relatorio_gerencial(periodo_dias: int = 30, linha_base: str = "Padari
     return {"periodo": periodo, "gerado_em": agora_br(), "linha_base": linha_base, "sublinha": sublinha, "resumo": resumo, "estoque": estoque, "top_itens": top_itens, "criticos": criticos, "lojas": lojas, "sublinhas": sublinhas, "linhas_resumo": linhas_resumo, "observacoes": observacoes}
 
 
+def _dados_resumo_padaria_industria_cd() -> dict[str, Any]:
+    """Resumo simples da Padaria - Industria CD para a aba Relatórios.
+    Não usa histórico de lote; olha direto para o estoque atual.
+    """
+    linha_base = "Padaria - Industria CD"
+    where_st, params_st = _where_linha_relatorio("st", linha_base, "")
+    with closing(get_conn()) as conn:
+        estoque = conn.execute(f"""
+            SELECT COUNT(*) AS produtos,
+                   SUM(CASE WHEN quantidade_atual <= 0 THEN 1 ELSE 0 END) AS zerados,
+                   SUM(CASE WHEN quantidade_atual > 0 AND quantidade_atual <= 10 THEN 1 ELSE 0 END) AS baixo,
+                   COALESCE(SUM(quantidade_atual), 0) AS quantidade_total,
+                   COALESCE(SUM(quantidade_atual * custo_unitario), 0) AS valor_estoque
+            FROM stock_items st
+            WHERE ativo = 1 {where_st}
+        """, params_st).fetchone()
+        linhas = conn.execute(f"""
+            SELECT COALESCE(NULLIF(TRIM(linha_erp), ''), 'Sem linha') AS linha,
+                   COUNT(*) AS produtos,
+                   SUM(CASE WHEN quantidade_atual <= 0 THEN 1 ELSE 0 END) AS zerados,
+                   SUM(CASE WHEN quantidade_atual > 0 AND quantidade_atual <= 10 THEN 1 ELSE 0 END) AS baixo,
+                   COALESCE(SUM(quantidade_atual), 0) AS saldo,
+                   COALESCE(SUM(quantidade_atual * custo_unitario), 0) AS valor
+            FROM stock_items st
+            WHERE ativo = 1 {where_st}
+            GROUP BY COALESCE(NULLIF(TRIM(linha_erp), ''), 'Sem linha')
+            ORDER BY linha COLLATE NOCASE ASC
+        """, params_st).fetchall()
+    return {"linha_base": linha_base, "estoque": estoque, "linhas": linhas, "gerado_em": agora_br()}
+
+
 @app.get("/relatorios/gerencial")
 @login_required
 @module_required("relatorios")
@@ -6163,43 +6194,9 @@ def relatorio_gerencial_pdf() -> Response:
 def relatorios() -> str:
     if not (user_has_access(g.user, "relatorios") and (user_is_admin(g.user) or normalize_role(g.user["role"]) == "balanco")):
         return forbidden_redirect("Somente admin ou balanço podem acessar os relatórios.")
-    historico_lotes = query_all(
-        f"""
-        SELECT {lote_operacao_chave_expr('s')} AS operacao_chave,
-               s.lote_nome,
-               s.data_referencia,
-               MAX(COALESCE(s.finalizado_em, s.criado_em)) AS finalizado_em,
-               COUNT(*) AS total_lojas,
-               GROUP_CONCAT(st.nome, ' • ') AS lojas,
-               COALESCE(SUM(si.quantidade_separada), 0) AS qtd_total,
-               COALESCE(SUM(si.quantidade_separada * si.custo_unitario_ref), 0) AS custo_total,
-               SUM(CASE WHEN s.status = 'FINALIZADA' THEN 1 ELSE 0 END) AS lojas_finalizadas,
-               SUM(CASE WHEN s.status = 'CANCELADA' THEN 1 ELSE 0 END) AS lojas_canceladas,
-               CASE
-                   WHEN SUM(CASE WHEN s.status = 'FINALIZADA' THEN 1 ELSE 0 END) > 0 AND SUM(CASE WHEN s.status = 'CANCELADA' THEN 1 ELSE 0 END) > 0 THEN 'MISTO'
-                   WHEN SUM(CASE WHEN s.status = 'CANCELADA' THEN 1 ELSE 0 END) > 0 THEN 'CANCELADO'
-                   ELSE 'FINALIZADO'
-               END AS status_lote
-        FROM separations s
-        JOIN stores st ON st.id = s.store_id
-        LEFT JOIN separation_items si ON si.separation_id = s.id
-        WHERE s.status IN ('FINALIZADA', 'CANCELADA')
-        GROUP BY operacao_chave, s.lote_nome, s.data_referencia
-        ORDER BY MAX(COALESCE(s.finalizado_em, s.criado_em)) DESC, MAX(s.id) DESC
-        LIMIT 100
-        """
-    )
-    resumo = query_one(
-        """
-        SELECT COUNT(DISTINCT s.id) AS finalizadas,
-               COALESCE(SUM(si.quantidade_separada), 0) AS itens,
-               COALESCE(SUM(si.quantidade_separada * si.custo_unitario_ref), 0) AS custo
-        FROM separations s
-        LEFT JOIN separation_items si ON si.separation_id = s.id
-        WHERE s.status = 'FINALIZADA'
-        """
-    )
-    return render_template("relatorios.html", title="Relatórios", historico_lotes=historico_lotes, resumo=resumo)
+    dados_padaria = _dados_resumo_padaria_industria_cd()
+    registrar_auditoria("visualizar_relatorios_padaria_industria_cd", "relatorio", "padaria_industria_cd", {})
+    return render_template("relatorios.html", title="Relatórios", dados_padaria=dados_padaria)
 
 
 @app.get("/estoque/historico/exportar.xlsx")
@@ -7110,6 +7107,25 @@ def _formatar_ocorrencia_mcp(tipo: str, loja_nome: str, nota_numero: str, itens:
     return "\n".join(linhas)
 
 
+@app.post("/api/mcp/anexar-temp")
+@login_required
+def api_mcp_anexar_temp() -> Response:
+    arquivo = request.files.get("arquivo")
+    if not arquivo or not arquivo.filename:
+        return jsonify({"error": "Nenhum arquivo recebido."}), 400
+    original = secure_filename(arquivo.filename) or "arquivo"
+    ext = os.path.splitext(original)[1].lower()
+    allowed = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".txt", ".xlsx", ".xls", ".csv", ".doc", ".docx"}
+    if ext not in allowed:
+        return jsonify({"error": "Tipo de arquivo não permitido para anexo temporário."}), 400
+    unique = f"mcp_{g.user['id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}{ext}"
+    full = os.path.join(_upload_chat_dir(), unique)
+    arquivo.save(full)
+    url = url_for('static', filename='uploads/chat_temp/' + unique)
+    registrar_auditoria("mcp_anexar_arquivo_temp", "chat_temp", unique, {"nome_original": original})
+    return jsonify({"ok": True, "nome": original, "url": url, "path": unique})
+
+
 @app.get("/api/mcp/usuarios")
 @login_required
 def api_mcp_usuarios() -> Response:
@@ -7135,6 +7151,16 @@ def api_mcp_registrar_ocorrencia() -> Response:
     nota_numero = str(data.get("nota_numero") or "").strip()
     relato = str(data.get("relato") or "").strip()
     itens = data.get("itens") if isinstance(data.get("itens"), list) else []
+    anexos = data.get("anexos") if isinstance(data.get("anexos"), list) else []
+    if anexos:
+        linhas_anexo = []
+        for anexo in anexos[:8]:
+            if isinstance(anexo, dict):
+                nome = str(anexo.get("nome") or "arquivo").strip()
+                url = str(anexo.get("url") or "").strip()
+                linhas_anexo.append(f"- {nome}: {url}" if url else f"- {nome}")
+        if linhas_anexo:
+            relato = (relato + "\n\nAnexos temporários enviados pelo MCP:\n" + "\n".join(linhas_anexo)).strip()
 
     if tipo not in {"mercadoria_sem_nota", "nota_sem_mercadoria", "outro"}:
         return jsonify({"error": "Tipo de problema inválido."}), 400

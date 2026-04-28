@@ -2506,3 +2506,19 @@ body {
 /* Comunicação / Chat / Tarefas */
 .communication-page .grid-2{display:grid;grid-template-columns:1fr 1.25fr;gap:18px;align-items:start}.compact-form{gap:10px}.checkbox-list{max-height:170px;overflow:auto;border:1px solid var(--border,#ddd);border-radius:14px;padding:10px;background:#fff}.checkbox-list label{display:block;margin:6px 0}.list-cards{display:grid;gap:8px;margin-top:12px}.mini-card{display:block;text-decoration:none;color:inherit;border:1px solid var(--border,#ddd);border-radius:14px;padding:12px;background:#fff}.mini-card span{display:block;color:#666;font-size:.9rem}.chat-card{min-height:520px}.chat-box{height:340px;overflow:auto;border:1px solid var(--border,#ddd);border-radius:16px;padding:12px;background:#faf8f2}.chat-line{display:flex;margin:8px 0}.chat-line.mine{justify-content:flex-end}.bubble{max-width:78%;padding:10px 12px;border-radius:16px;background:#fff;border:1px solid #e6dac8}.chat-line.mine .bubble{background:#eaf5e8;border-color:#b8d8b5}.bubble small{display:block;color:#667;font-size:.78rem;margin-bottom:4px}.bubble p{margin:0;white-space:pre-wrap}.file-pill{margin-top:8px;padding:8px;border-radius:12px;background:#fff7e7;border:1px solid #efd8ad;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.chat-form{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:10px}.chat-form textarea{grid-column:1/-1;min-height:70px}.btn.small{padding:8px 12px;font-size:.9rem}.responsive-table{overflow:auto}.responsive-table table{min-width:620px}
 @media(max-width:760px){.communication-page .grid-2{grid-template-columns:1fr}.chat-card{min-height:auto}.chat-box{height:300px}.bubble{max-width:92%}.chat-form{grid-template-columns:1fr}.responsive-table table{min-width:0;width:100%}.responsive-table table,.responsive-table thead,.responsive-table tbody,.responsive-table th,.responsive-table td,.responsive-table tr{display:block}.responsive-table thead{display:none}.responsive-table tr{border:1px solid #e4d8c8;border-radius:14px;margin:10px 0;padding:10px;background:#fff}.responsive-table td{border:none!important;padding:6px 0!important}}
+
+/* Ajustes MCP final - anexos no chat e relatórios Padaria Industria CD */
+.floating-ai-compose { display:grid; gap:8px; }
+.floating-ai-compose-actions { display:flex; align-items:center; gap:8px; justify-content:flex-end; }
+.floating-ai-icon-btn { width:38px; height:38px; border-radius:999px; border:1px solid rgba(47,93,46,.22); background:#f7f2e8; cursor:pointer; font-size:1rem; display:grid; place-items:center; }
+.floating-ai-icon-btn:hover { background:#e9efe6; transform:translateY(-1px); }
+.floating-ai-attach-row { display:flex; gap:6px; flex-wrap:wrap; }
+.floating-ai-attachment { display:inline-flex; align-items:center; gap:6px; max-width:100%; padding:6px 9px; border-radius:999px; background:#e9efe6; color:#20351f; font-size:.78rem; }
+.floating-ai-attachment button { border:0; background:rgba(0,0,0,.08); border-radius:999px; width:20px; height:20px; cursor:pointer; }
+.relatorios-padaria-stats { grid-template-columns: repeat(5, minmax(130px, 1fr)); }
+@media(max-width:760px){
+  .floating-ai { right:12px; bottom:12px; }
+  .floating-ai-panel { width:calc(100vw - 24px); max-height:82vh; }
+  .floating-ai-compose-actions .btn { flex:1; }
+  .relatorios-padaria-stats { grid-template-columns:1fr; }
+}

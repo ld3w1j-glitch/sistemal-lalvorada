@@ -1,54 +1,65 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="main"><div class="wrap grid-2">
-  <div class="card">
-    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
-      <h1 class="section-title">Resumo</h1>
-      <div class="inline">
-        <a class="btn" href="{{ url_for('relatorio_gerencial') }}">Relatório gerencial</a>
-        <a class="btn btn-secondary" href="{{ url_for('relatorio_gerencial_pdf') }}">PDF gerencial</a>
+<section class="main">
+  <div class="wrap">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+        <div>
+          <span class="eyebrow">Relatórios</span>
+          <h1 class="section-title">Padaria Industria CD</h1>
+          <p class="muted">Resumo direto do estoque atual da linha <strong>{{ dados_padaria.linha_base }}</strong>. Esta página não mostra mais histórico de lote.</p>
+          <p class="muted">Gerado em {{ dados_padaria.gerado_em }}</p>
+        </div>
+        <div class="inline">
+          <a class="btn" href="{{ url_for('relatorio_gerencial') }}">Abrir relatório detalhado</a>
+          <a class="btn btn-secondary" href="{{ url_for('relatorio_gerencial_pdf') }}">PDF gerencial</a>
+        </div>
+      </div>
+
+      <div class="stats relatorios-padaria-stats">
+        <div class="stat"><span>Valor Padaria Industria CD</span><strong>{{ fmt_money(dados_padaria.estoque.valor_estoque or 0) }}</strong></div>
+        <div class="stat"><span>Qtd. total em estoque</span><strong>{{ fmt_num(dados_padaria.estoque.quantidade_total or 0) }}</strong></div>
+        <div class="stat"><span>Itens existentes</span><strong>{{ dados_padaria.estoque.produtos or 0 }}</strong></div>
+        <div class="stat"><span>Abaixo do estoque</span><strong>{{ dados_padaria.estoque.baixo or 0 }}</strong></div>
+        <div class="stat"><span>Itens zerados</span><strong>{{ dados_padaria.estoque.zerados or 0 }}</strong></div>
       </div>
     </div>
-    <div class="stats">
-      <div class="stat"><span>Finalizadas</span><strong>{{ resumo.finalizadas or 0 }}</strong></div>
-      <div class="stat"><span>Itens</span><strong>{{ fmt_num(resumo.itens or 0) }}</strong></div>
-      <div class="stat"><span>Custo</span><strong>{{ fmt_money(resumo.custo or 0) }}</strong></div>
-      <div class="stat"><span>Lotes</span><strong>{{ historico_lotes|length }}</strong></div>
+
+    <div class="card">
+      <h2 class="section-title">Todas as linhas dentro da Padaria Industria CD</h2>
+      <div class="table-responsive"><table>
+        <thead>
+          <tr>
+            <th>Linha interna</th>
+            <th>Itens existentes</th>
+            <th>Qtd. estoque</th>
+            <th>Abaixo do estoque</th>
+            <th>Zerados</th>
+            <th>Valor</th>
+            <th>Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for linha in dados_padaria.linhas %}
+          <tr>
+            <td>{{ linha.linha }}</td>
+            <td>{{ linha.produtos or 0 }}</td>
+            <td>{{ fmt_num(linha.saldo or 0) }}</td>
+            <td>{{ linha.baixo or 0 }}</td>
+            <td>{{ linha.zerados or 0 }}</td>
+            <td>{{ fmt_money(linha.valor or 0) }}</td>
+            <td><a class="btn btn-secondary" href="{{ url_for('relatorio_gerencial', linha_base=dados_padaria.linha_base, sublinha=linha.linha) }}">Filtrar</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="empty">Nenhuma linha encontrada para Padaria Industria CD.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
     </div>
   </div>
-  <div class="card">
-    <h2 class="section-title">Histórico por lote</h2>
-    <div class="table-responsive"><table>
-      <thead><tr><th>Lote</th><th>Data</th><th>Status</th><th>Lojas</th><th>Qtd.</th><th>Custo</th><th>Ação</th></tr></thead>
-      <tbody>
-      {% for h in historico_lotes %}
-      <tr>
-        <td>{{ h.lote_nome }}</td>
-        <td>{{ h.data_referencia }}</td>
-        <td><span class="{{ status_class('CANCELADA' if h.status_lote == 'CANCELADO' else 'FINALIZADA' if h.status_lote == 'FINALIZADO' else 'PARCIAL') }}">{{ h.status_lote }}</span><div class="mini">{{ h.lojas_finalizadas }} finalizada(s) • {{ h.lojas_canceladas }} cancelada(s)</div></td>
-        <td>{{ h.total_lojas }} loja(s)<div class="mini">{{ h.lojas }}</div></td>
-        <td>{{ fmt_num(h.qtd_total) }}</td>
-        <td>{{ fmt_money(h.custo_total) }}</td>
-        <td class="actions-cell">
-          <a class="btn btn-secondary" href="{{ url_for('detalhe_historico_lote', lote_codigo=h.operacao_chave) }}">Abrir lote</a>
-          {% if g.user['role'] == 'admin' %}
-          <form method="post" action="{{ url_for('apagar_historico_lote', lote_codigo=h.operacao_chave) }}" onsubmit="return confirm('Processar este lote histórico? As lojas finalizadas serão canceladas com estorno e as já canceladas serão excluídas em definitivo.');">
-            <button class="btn-danger" type="submit">Processar lote</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="7" class="empty">Sem histórico encontrado.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table></div>
-  </div>
-</div></section>
+</section>
 
-{% if user_is_admin(g.user) %}
-{% with assistente_contexto='relatorios', assistente_titulo='Assistente IA dos Relatórios', assistente_linha='' %}
+{% with assistente_contexto='relatorios', assistente_titulo='Assistente IA dos Relatórios', assistente_linha='Padaria - Industria CD' %}
 {% include 'partials/_assistente_ia.html' %}
 {% endwith %}
-{% endif %}
 {% endblock %}
