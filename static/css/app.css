@@ -2299,3 +2299,49 @@ body {
     height: 100dvh;
   }
 }
+
+/* Favicon/PWA: animação de carregamento com a logo da empresa sem alterar a logo do cabeçalho */
+.page-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(251, 247, 239, 0.88);
+  backdrop-filter: blur(6px);
+}
+
+.page-loading-overlay.is-visible {
+  display: flex;
+}
+
+.page-loading-card {
+  width: min(260px, calc(100vw - 48px));
+  padding: 24px 20px;
+  border: 1px solid rgba(47, 107, 47, 0.18);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 45px rgba(36, 45, 36, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  text-align: center;
+  color: #2d2d2d;
+  font-weight: 800;
+}
+
+.page-loading-logo {
+  width: 104px;
+  height: 104px;
+  object-fit: contain;
+  border-radius: 24px;
+  animation: alvoradaPulse 1.15s ease-in-out infinite;
+  filter: drop-shadow(0 10px 18px rgba(47, 107, 47, 0.22));
+}
+
+@keyframes alvoradaPulse {
+  0%, 100% { transform: scale(0.96); opacity: 0.82; }
+  50% { transform: scale(1.08); opacity: 1; }
+}

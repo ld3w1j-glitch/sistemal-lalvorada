@@ -2555,6 +2555,93 @@ def _mcp_sugerir_acoes(resposta: dict[str, Any]) -> list[dict[str, str]]:
     return acoes
 
 
+
+
+def _mcp_senha_atual_valida(password: str) -> bool:
+    if g.user is None:
+        return False
+    try:
+        return check_password_hash(g.user["password_hash"], password or "")
+    except Exception:
+        return False
+
+
+def _mcp_acao_sensivel(action_type: str) -> bool:
+    return str(action_type or "").strip().lower() in {
+        "criar_lista_balanco",
+        "gerar_relatorio_gerencial",
+        "revisar_lote",
+    }
+
+
+def _mcp_executar_criar_lista_balanco(pergunta: str, linha: str = "", filtros: dict[str, Any] | None = None) -> dict[str, Any]:
+    if not user_has_access(g.user, "balanco") and not user_is_admin(g.user):
+        raise ValueError("Seu usuário não tem permissão para criar balanço.")
+    resposta = _executar_pergunta_mcp(pergunta or "listar estoque limite 50", linha=linha, filtros=filtros or {})
+    raw = resposta.get("raw")
+    produtos = raw if isinstance(raw, list) else []
+    produtos = [p for p in produtos if isinstance(p, dict) and (p.get("id") or p.get("codigo"))]
+    if not produtos:
+        raise ValueError("A consulta não trouxe produtos suficientes para criar uma lista de balanço.")
+    agora = agora_iso()
+    titulo = f"MCP - {str(pergunta or 'Lista de balanço')[:80]}"
+    observacao = "Criado pelo assistente MCP. Revise antes de confirmar qualquer atualização de estoque."
+    with closing(get_conn()) as conn:
+        cur = conn.execute(
+            "INSERT INTO balance_counts (titulo, observacao, status, criado_por, criado_em) VALUES (?, ?, 'ABERTO', ?, ?)",
+            (titulo, observacao, g.user["id"], agora),
+        )
+        balance_id = int(cur.lastrowid)
+        inseridos = 0
+        for prod in produtos[:200]:
+            item = None
+            if prod.get("id"):
+                item = conn.execute("SELECT * FROM stock_items WHERE id = ? AND ativo = 1", (prod.get("id"),)).fetchone()
+            if item is None and prod.get("codigo"):
+                item = conn.execute("SELECT * FROM stock_items WHERE ativo = 1 AND (codigo = ? OR codigo_barras = ?) LIMIT 1", (prod.get("codigo"), prod.get("codigo"))).fetchone()
+            if item is None:
+                continue
+            sistema = float(item["quantidade_atual"] or 0)
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO balance_count_items
+                (balance_count_id, stock_item_id, codigo, descricao, linha_erp, quantidade_sistema, quantidade_contada, delta, custo_unitario, criado_em, atualizado_em)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                """,
+                (balance_id, item["id"], item["codigo"], item["descricao"], item["linha_erp"], sistema, -sistema, item["custo_unitario"] or 0, agora, agora),
+            )
+            inseridos += 1
+        conn.commit()
+    registrar_auditoria("mcp_executar_criar_balanco", "balance_counts", str(balance_id), {"pergunta": pergunta[:300], "itens": inseridos})
+    return {
+        "ok": True,
+        "mensagem": f"Balanço criado com {inseridos} item(ns).",
+        "redirect_url": url_for("detalhe_balanco", balance_id=balance_id),
+        "balance_id": balance_id,
+        "itens": inseridos,
+    }
+
+
+def _mcp_executar_acao_real(action_type: str, pergunta: str, linha: str = "", filtros: dict[str, Any] | None = None) -> dict[str, Any]:
+    action_type = str(action_type or "").strip().lower()
+    if action_type == "criar_lista_balanco":
+        return _mcp_executar_criar_lista_balanco(pergunta, linha=linha, filtros=filtros)
+    if action_type == "gerar_relatorio_gerencial":
+        if not user_has_access(g.user, "relatorios") and not user_is_admin(g.user):
+            raise ValueError("Seu usuário não tem permissão para abrir relatórios.")
+        registrar_auditoria("mcp_abrir_relatorio", "mcp", "relatorio_gerencial", {"pergunta": pergunta[:300]})
+        return {"ok": True, "mensagem": "Relatório gerencial liberado.", "redirect_url": url_for("relatorio_gerencial")}
+    if action_type == "revisar_lote":
+        if not user_has_access(g.user, "lotes") and not user_is_admin(g.user):
+            raise ValueError("Seu usuário não tem permissão para revisar lotes.")
+        registrar_auditoria("mcp_abrir_lotes", "mcp", "lotes", {"pergunta": pergunta[:300]})
+        return {"ok": True, "mensagem": "Tela de lotes liberada.", "redirect_url": url_for("listar_lotes")}
+    if action_type in {"exportar_excel", "exportar_pdf"}:
+        formato = "excel" if action_type == "exportar_excel" else "pdf"
+        registrar_auditoria("mcp_exportacao_orientada", "mcp", formato, {"pergunta": pergunta[:300]})
+        return {"ok": True, "mensagem": f"Para baixar em {formato.upper()}, use o botão de exportação da página MCP depois da consulta."}
+    raise ValueError("Esta ação ainda não possui execução real segura.")
+
 def _mcp_contexto_permitido(contexto: str) -> bool:
     contexto = str(contexto or "mcp_teste").strip().lower()
     mapa = {
@@ -3432,6 +3519,30 @@ def api_mcp_preparar_acao() -> Response:
         "mensagem": f"{title_map[action_type]} em modo rascunho. Nada foi alterado no estoque. Revise antes de executar qualquer ação real.",
         "resumo": payload_db,
     })
+
+
+@app.route("/api/mcp/executar-acao", methods=["POST"])
+@login_required
+def api_mcp_executar_acao() -> Response:
+    payload = request.get_json(silent=True) or {}
+    contexto = str(payload.get("contexto") or "mcp_teste").strip().lower()
+    action_type = str(payload.get("action_type") or "").strip().lower()
+    pergunta = str(payload.get("pergunta") or "").strip()
+    linha = str(payload.get("linha") or "").strip()
+    filtros = payload.get("filtros") if isinstance(payload.get("filtros"), dict) else {}
+    password = str(payload.get("password") or "")
+    if not _mcp_contexto_permitido(contexto):
+        return jsonify({"error": "Você não tem permissão para executar ação neste contexto."}), 403
+    if _mcp_acao_sensivel(action_type) and not _mcp_senha_atual_valida(password):
+        return jsonify({
+            "requires_password": True,
+            "error": "Essa ação mexe em informação sensível. Confirme sua senha para continuar.",
+        }), 401
+    try:
+        resultado = _mcp_executar_acao_real(action_type, pergunta, linha=linha, filtros=filtros)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(resultado)
 
 
 @app.route("/api/mcp/categorias", methods=["GET"])
@@ -4805,6 +4916,12 @@ def grade_lote(lote_codigo: str) -> str | Response:
     if not separacoes:
         flash("Lote não encontrado.", "error")
         return redirect(url_for("listar_lotes"))
+
+    # Regra de permissão: separador apenas separa itens já lançados.
+    # Ele não pode abrir a grade de montagem nem adicionar produtos ao pedido criado.
+    if not user_is_admin(g.user) and normalize_role(g.user["role"]) == "separador":
+        flash("Seu acesso é apenas para separar itens. A montagem/adição de produtos fica com o responsável/admin.", "error")
+        return redirect(url_for("separar_itens_lote", lote_codigo=lote_codigo))
 
     if request.method == "POST":
         codigo = request.form.get("codigo", "").strip()

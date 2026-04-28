@@ -1,0 +1,17 @@
+{
+  "name": "Padaria Sistema Alvorada",
+  "short_name": "Alvorada",
+  "description": "Sistema de separação, estoque, recebimento e balanço da Padaria Alvorada.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fbf7ef",
+  "theme_color": "#2f6b2f",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/static/img/favicon-32.png", "sizes": "32x32", "type": "image/png" },
+    { "src": "/static/img/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/static/img/pwa-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/static/img/pwa-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

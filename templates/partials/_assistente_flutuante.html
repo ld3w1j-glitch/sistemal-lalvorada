@@ -92,13 +92,27 @@
       output.innerHTML = html;
       output.querySelectorAll('[data-action]').forEach(btn => {
         btn.addEventListener('click', async () => {
-          const r = await fetch('{{ url_for('api_mcp_preparar_acao') }}', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({contexto: ctx, action_type: btn.dataset.action, pergunta: mensagem, filtros: {limite: 30}})
-          });
-          const d = await r.json();
-          alert(d.mensagem || d.error || 'Ação preparada.');
+          async function executar(password) {
+            const r = await fetch('{{ url_for('api_mcp_executar_acao') }}', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({contexto: ctx, action_type: btn.dataset.action, pergunta: mensagem, filtros: {limite: 30}, password: password || ''})
+            });
+            const d = await r.json();
+            if (d.requires_password) {
+              const senha = window.prompt('Essa ação é sensível. Digite sua senha para confirmar:');
+              if (!senha) return;
+              return executar(senha);
+            }
+            if (!r.ok) throw new Error(d.error || 'Não foi possível executar.');
+            alert(d.mensagem || 'Ação executada.');
+            if (d.redirect_url) window.location.href = d.redirect_url;
+          }
+          try {
+            await executar('');
+          } catch(err) {
+            alert(err.message || err);
+          }
         });
       });
     } catch(err) {

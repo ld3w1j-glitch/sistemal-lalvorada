@@ -451,7 +451,7 @@
       return;
     }
     preparedActions.classList.remove('is-empty');
-    preparedActions.innerHTML = '<strong>Ações preparadas</strong><p>Essas ações ficam como rascunho e não alteram o estoque sem revisão.</p>' +
+    preparedActions.innerHTML = '<strong>Ações do MCP</strong><p>Ações sensíveis pedem sua senha antes de executar.</p>' +
       actions.map(function(action){
         return '<button type="button" class="btn secondary" data-action-type="' + escapeHtml(action.type) + '">' + escapeHtml(action.label) + '</button>';
       }).join('');
@@ -464,17 +464,26 @@
 
   async function prepararAcao(actionType) {
     if (!lastQuery) return;
-    try {
-      const response = await fetch('{{ url_for('api_mcp_preparar_acao') }}', {
+    async function executar(password) {
+      const response = await fetch('{{ url_for('api_mcp_executar_acao') }}', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({contexto: mcpContexto, action_type: actionType, pergunta: lastQuery, linha: lastLinha, filtros: lastFilters})
+        body: JSON.stringify({contexto: mcpContexto, action_type: actionType, pergunta: lastQuery, linha: lastLinha, filtros: lastFilters, password: password || ''})
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Erro ao preparar ação.');
-      addMessage('bot', 'Ação preparada', data.mensagem || 'Rascunho criado.');
+      if (data.requires_password) {
+        const senha = window.prompt('Essa ação é sensível. Digite sua senha para confirmar:');
+        if (!senha) return;
+        return executar(senha);
+      }
+      if (!response.ok) throw new Error(data.error || 'Erro ao executar ação.');
+      addMessage('bot', 'Ação executada', data.mensagem || 'Ação concluída.');
+      if (data.redirect_url) window.location.href = data.redirect_url;
+    }
+    try {
+      await executar('');
     } catch (error) {
-      addMessage('bot', 'Erro', 'Não consegui preparar a ação: ' + error.message);
+      addMessage('bot', 'Erro', 'Não consegui executar a ação: ' + error.message);
     }
   }
 
