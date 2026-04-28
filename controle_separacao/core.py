@@ -1608,11 +1608,11 @@ def painel_gerencial_padaria_cd() -> dict[str, Any]:
         LIMIT 8
     """)
     return {
-        "total_itens": int(row["total_itens"] if row else 0),
-        "quantidade_total": float(row["quantidade_total"] if row else 0),
-        "valor_estoque": float(row["valor_estoque"] if row else 0),
-        "itens_zerados": int(row["itens_zerados"] if row else 0),
-        "itens_abaixo": int(row["itens_abaixo"] if row else 0),
+        "total_itens": int((row["total_itens"] if row else 0) or 0),
+        "quantidade_total": float((row["quantidade_total"] if row else 0) or 0),
+        "valor_estoque": float((row["valor_estoque"] if row else 0) or 0),
+        "itens_zerados": int((row["itens_zerados"] if row else 0) or 0),
+        "itens_abaixo": int((row["itens_abaixo"] if row else 0) or 0),
         "linhas": linhas,
     }
 
