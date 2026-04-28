@@ -264,4 +264,45 @@
   codigoInput.addEventListener('blur', buscarProduto);
 })();
 </script>
+
+<div class="op-box recebimento-scanner-box">
+  <div class="toolbar">
+    <strong>Leitor por câmera</strong>
+    <button type="button" class="btn-secondary" id="btn-camera">📷</button>
+  </div>
+  <video id="camera-preview" class="camera-preview" playsinline muted hidden></video>
+  <p class="mini" id="camera-status">Use a câmera para buscar.</p>
+</div>
+<script>
+let video=document.getElementById('camera-preview');
+let btnCamera=document.getElementById('btn-camera');
+let cameraStatus=document.getElementById('camera-status');
+let stream=null, scanning=false;
+async function iniciarCamera(){
+ if(!('BarcodeDetector'in window)){cameraStatus.textContent='Sem suporte';return;}
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+  video.srcObject=stream; video.hidden=false; await video.play();
+  scanning=true;
+  const detector=new BarcodeDetector({formats:['ean_13','code_128']});
+  async function loop(){
+    if(!scanning)return;
+    const codes=await detector.detect(video);
+    if(codes.length){
+      document.getElementById('busca').value=codes[0].rawValue;
+      pararCamera(); return;
+    }
+    requestAnimationFrame(loop);
+  }
+  loop();
+ }catch(e){cameraStatus.textContent='Erro camera';}
+}
+function pararCamera(){
+ scanning=false;
+ if(stream)stream.getTracks().forEach(t=>t.stop());
+ video.hidden=true;
+}
+btnCamera.onclick=()=>{if(stream)pararCamera();else iniciarCamera();}
+</script>
+
 {% endblock %}
