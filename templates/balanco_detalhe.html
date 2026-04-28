@@ -24,8 +24,11 @@
     <div class="card" style="margin-top:16px;">
       <h2 class="section-title">Registrar mercadoria contada</h2>
       <form method="post" class="stock-search-form">
-        <input type="text" id="codigo_balanco" name="codigo" placeholder="Código ou código de barras" autocomplete="off" autofocus required>
-        <input type="text" name="quantidade_contada" placeholder="Quantidade contada" required>
+        <div class="scanner-input-wrap">
+          <input type="text" id="codigo_balanco" name="codigo" placeholder="Código ou código de barras" autocomplete="off" autofocus required>
+          <button type="button" class="btn-secondary scanner-icon-btn" id="btn-camera-balanco" aria-label="Ler código pela câmera" title="Ler código pela câmera">📷</button>
+        </div>
+        <input type="text" id="quantidade_balanco" name="quantidade_contada" placeholder="Quantidade contada" required>
         <select name="modo">
           <option value="substituir">Substituir contagem do item</option>
           <option value="somar">Somar com contagem já lançada</option>
@@ -80,6 +83,90 @@
     </div>
   </div>
 </section>
+
+<div class="scanner-modal" id="scanner-modal-balanco" hidden>
+  <div class="scanner-backdrop" data-scanner-close="balanco"></div>
+  <div class="scanner-card" role="dialog" aria-modal="true" aria-label="Leitor de código de barras">
+    <div class="scanner-head">
+      <div>
+        <strong>Ler código de barras</strong>
+        <p class="mini" style="margin:4px 0 0;">Aponte a câmera para o código. Depois de ler, informe a quantidade contada.</p>
+      </div>
+      <button type="button" class="btn-secondary scanner-close" data-scanner-close="balanco">Fechar</button>
+    </div>
+    <div class="scanner-view">
+      <video id="scanner-video-balanco" playsinline muted></video>
+      <div class="scanner-frame"></div>
+    </div>
+    <p class="mini scanner-status" id="scanner-status-balanco">Aguardando câmera...</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  const codigoInput = document.getElementById('codigo_balanco');
+  const quantidadeInput = document.getElementById('quantidade_balanco');
+  const btnCamera = document.getElementById('btn-camera-balanco');
+  const modal = document.getElementById('scanner-modal-balanco');
+  const video = document.getElementById('scanner-video-balanco');
+  const status = document.getElementById('scanner-status-balanco');
+  let stream = null;
+  let scanning = false;
+
+  function fecharScanner() {
+    scanning = false;
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    }
+    if (video) video.srcObject = null;
+    if (modal) modal.hidden = true;
+    document.body.classList.remove('scanner-open');
+  }
+
+  async function abrirScanner() {
+    if (!codigoInput || !modal || !video) return;
+    if (!('BarcodeDetector' in window)) {
+      alert('Este navegador não tem leitor nativo de código de barras. Use Chrome no Android ou digite o código manualmente.');
+      return;
+    }
+    try {
+      modal.hidden = false;
+      document.body.classList.add('scanner-open');
+      status.textContent = 'Abrindo câmera...';
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      video.srcObject = stream;
+      await video.play();
+      status.textContent = 'Aponte para o código de barras.';
+      scanning = true;
+      const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e'] });
+      async function loop() {
+        if (!scanning) return;
+        try {
+          const codes = await detector.detect(video);
+          if (codes.length) {
+            const valor = codes[0].rawValue || '';
+            codigoInput.value = valor;
+            status.textContent = 'Código lido: ' + valor;
+            if (navigator.vibrate) navigator.vibrate(80);
+            fecharScanner();
+            if (quantidadeInput) quantidadeInput.focus();
+            return;
+          }
+        } catch (e) {}
+        requestAnimationFrame(loop);
+      }
+      loop();
+    } catch (err) {
+      status.textContent = 'Não foi possível acessar a câmera. Verifique a permissão do navegador.';
+    }
+  }
+
+  if (btnCamera) btnCamera.addEventListener('click', abrirScanner);
+  document.querySelectorAll('[data-scanner-close="balanco"]').forEach(btn => btn.addEventListener('click', fecharScanner));
+})();
+</script>
+
 <style>
 @media print {
   .topbar, .flash-wrap, .no-print, .stock-search-actions, form, .assistente-flutuante { display:none !important; }
@@ -89,45 +176,4 @@
 .row-positive td { background: rgba(63, 126, 51, .08); }
 .row-negative td { background: rgba(180, 40, 40, .08); }
 </style>
-
-<div class="op-box recebimento-scanner-box">
-  <div class="toolbar">
-    <strong>Leitor por câmera</strong>
-    <button type="button" class="btn-secondary" id="btn-camera">📷</button>
-  </div>
-  <video id="camera-preview" class="camera-preview" playsinline muted hidden></video>
-  <p class="mini" id="camera-status">Use a câmera para buscar.</p>
-</div>
-<script>
-let video=document.getElementById('camera-preview');
-let btnCamera=document.getElementById('btn-camera');
-let cameraStatus=document.getElementById('camera-status');
-let stream=null, scanning=false;
-async function iniciarCamera(){
- if(!('BarcodeDetector'in window)){cameraStatus.textContent='Sem suporte';return;}
- try{
-  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-  video.srcObject=stream; video.hidden=false; await video.play();
-  scanning=true;
-  const detector=new BarcodeDetector({formats:['ean_13','code_128']});
-  async function loop(){
-    if(!scanning)return;
-    const codes=await detector.detect(video);
-    if(codes.length){
-      document.getElementById('codigo').value=codes[0].rawValue;
-      pararCamera(); return;
-    }
-    requestAnimationFrame(loop);
-  }
-  loop();
- }catch(e){cameraStatus.textContent='Erro camera';}
-}
-function pararCamera(){
- scanning=false;
- if(stream)stream.getTracks().forEach(t=>t.stop());
- video.hidden=true;
-}
-btnCamera.onclick=()=>{if(stream)pararCamera();else iniciarCamera();}
-</script>
-
 {% endblock %}

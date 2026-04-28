@@ -36,7 +36,10 @@
   <div class="card">
     <h2 class="section-title">Buscar item no estoque</h2>
     <form method="get" class="stock-search-form stock-search-form-simple">
-      <input type="text" id="busca_estoque" name="q" placeholder="Pesquisar por código, nome ou código de barras" value="{{ termo_busca or '' }}" autocomplete="off" autofocus>
+      <div class="scanner-input-wrap">
+        <input type="text" id="busca_estoque" name="q" placeholder="Pesquisar por código, nome ou código de barras" value="{{ termo_busca or '' }}" autocomplete="off" autofocus>
+        <button type="button" class="btn-secondary scanner-icon-btn" id="btn-camera-estoque" aria-label="Ler código pela câmera" title="Ler código pela câmera">📷</button>
+      </div>
       <label class="check-line stock-check-line"><input type="checkbox" name="somente_com_saldo" value="1" {% if somente_com_saldo %}checked{% endif %}> Somente com saldo</label>
       <div class="stock-search-actions">
         <button class="btn-secondary" type="submit">Buscar</button>
@@ -113,7 +116,8 @@
               <input type="text" name="nova_quantidade" placeholder="Nova quantidade" required>
               <button class="btn-secondary" type="submit">Ajustar qtd.</button>
             </form>
-            {% if user_is_admin(g.user) %}
+            
+{% if user_is_admin(g.user) %}
             <form method="post" action="{{ url_for('remover_item_estoque', stock_item_id=item.id) }}">
               <input type="hidden" name="redirect_q" value="{{ termo_busca or '' }}">
               <input type="hidden" name="redirect_somente_com_saldo" value="{% if somente_com_saldo %}1{% else %}0{% endif %}">
@@ -208,6 +212,24 @@
 </div>
 </section>
 
+<div class="scanner-modal" id="scanner-modal-estoque" hidden>
+  <div class="scanner-backdrop" data-scanner-close="estoque"></div>
+  <div class="scanner-card" role="dialog" aria-modal="true" aria-label="Leitor de código de barras">
+    <div class="scanner-head">
+      <div>
+        <strong>Ler código de barras</strong>
+        <p class="mini" style="margin:4px 0 0;">Aponte a câmera para o código. Ao ler, a busca será feita automaticamente.</p>
+      </div>
+      <button type="button" class="btn-secondary scanner-close" data-scanner-close="estoque">Fechar</button>
+    </div>
+    <div class="scanner-view">
+      <video id="scanner-video-estoque" playsinline muted></video>
+      <div class="scanner-frame"></div>
+    </div>
+    <p class="mini scanner-status" id="scanner-status-estoque">Aguardando câmera...</p>
+  </div>
+</div>
+
 
 {% if user_is_admin(g.user) %}
 {% with assistente_contexto='estoque', assistente_titulo='Assistente IA do Estoque', assistente_linha=termo_busca or '' %}
@@ -224,8 +246,69 @@
   const infoBusca = document.getElementById('estoque_info_busca');
   const buscaInput = document.getElementById('busca_estoque');
   if (buscaInput) buscaInput.select();
-  if (!codigoInput || !descricaoInput || !fatorInput || !custoInput) return;
   let timer = null;
+
+  const btnCameraEstoque = document.getElementById('btn-camera-estoque');
+  const scannerModalEstoque = document.getElementById('scanner-modal-estoque');
+  const scannerVideoEstoque = document.getElementById('scanner-video-estoque');
+  const scannerStatusEstoque = document.getElementById('scanner-status-estoque');
+  let scannerStreamEstoque = null;
+  let scannerAtivoEstoque = false;
+
+  function fecharScannerEstoque() {
+    scannerAtivoEstoque = false;
+    if (scannerStreamEstoque) {
+      scannerStreamEstoque.getTracks().forEach(track => track.stop());
+      scannerStreamEstoque = null;
+    }
+    if (scannerVideoEstoque) scannerVideoEstoque.srcObject = null;
+    if (scannerModalEstoque) scannerModalEstoque.hidden = true;
+    document.body.classList.remove('scanner-open');
+  }
+
+  async function abrirScannerEstoque() {
+    if (!buscaInput || !scannerModalEstoque || !scannerVideoEstoque) return;
+    if (!('BarcodeDetector' in window)) {
+      alert('Este navegador não tem leitor nativo de código de barras. Use Chrome no Android ou digite o código manualmente.');
+      return;
+    }
+    try {
+      scannerModalEstoque.hidden = false;
+      document.body.classList.add('scanner-open');
+      scannerStatusEstoque.textContent = 'Abrindo câmera...';
+      scannerStreamEstoque = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      scannerVideoEstoque.srcObject = scannerStreamEstoque;
+      await scannerVideoEstoque.play();
+      scannerStatusEstoque.textContent = 'Aponte para o código de barras.';
+      scannerAtivoEstoque = true;
+      const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e'] });
+      async function loopScannerEstoque() {
+        if (!scannerAtivoEstoque) return;
+        try {
+          const codes = await detector.detect(scannerVideoEstoque);
+          if (codes.length) {
+            const valor = codes[0].rawValue || '';
+            buscaInput.value = valor;
+            scannerStatusEstoque.textContent = 'Código lido: ' + valor;
+            if (navigator.vibrate) navigator.vibrate(80);
+            fecharScannerEstoque();
+            const form = buscaInput.closest('form');
+            if (form) form.submit();
+            return;
+          }
+        } catch (e) {}
+        requestAnimationFrame(loopScannerEstoque);
+      }
+      loopScannerEstoque();
+    } catch (err) {
+      scannerStatusEstoque.textContent = 'Não foi possível acessar a câmera. Verifique a permissão do navegador.';
+    }
+  }
+
+  if (btnCameraEstoque) btnCameraEstoque.addEventListener('click', abrirScannerEstoque);
+  document.querySelectorAll('[data-scanner-close="estoque"]').forEach(btn => btn.addEventListener('click', fecharScannerEstoque));
+
+  if (!codigoInput || !descricaoInput || !fatorInput || !custoInput) return;
 
   async function buscarProduto() {
     const codigo = codigoInput.value.trim();
@@ -264,45 +347,4 @@
   codigoInput.addEventListener('blur', buscarProduto);
 })();
 </script>
-
-<div class="op-box recebimento-scanner-box">
-  <div class="toolbar">
-    <strong>Leitor por câmera</strong>
-    <button type="button" class="btn-secondary" id="btn-camera">📷</button>
-  </div>
-  <video id="camera-preview" class="camera-preview" playsinline muted hidden></video>
-  <p class="mini" id="camera-status">Use a câmera para buscar.</p>
-</div>
-<script>
-let video=document.getElementById('camera-preview');
-let btnCamera=document.getElementById('btn-camera');
-let cameraStatus=document.getElementById('camera-status');
-let stream=null, scanning=false;
-async function iniciarCamera(){
- if(!('BarcodeDetector'in window)){cameraStatus.textContent='Sem suporte';return;}
- try{
-  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-  video.srcObject=stream; video.hidden=false; await video.play();
-  scanning=true;
-  const detector=new BarcodeDetector({formats:['ean_13','code_128']});
-  async function loop(){
-    if(!scanning)return;
-    const codes=await detector.detect(video);
-    if(codes.length){
-      document.getElementById('busca').value=codes[0].rawValue;
-      pararCamera(); return;
-    }
-    requestAnimationFrame(loop);
-  }
-  loop();
- }catch(e){cameraStatus.textContent='Erro camera';}
-}
-function pararCamera(){
- scanning=false;
- if(stream)stream.getTracks().forEach(t=>t.stop());
- video.hidden=true;
-}
-btnCamera.onclick=()=>{if(stream)pararCamera();else iniciarCamera();}
-</script>
-
 {% endblock %}

@@ -2175,3 +2175,37 @@ body {
 @media (max-width: 900px) {
   .recebimento-layout { grid-template-columns: 1fr; }
 }
+
+/* Scanner compacto para campos de busca no celular */
+.scanner-input-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  width: 100%;
+}
+.scanner-input-wrap input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.scanner-icon-btn {
+  width: 52px;
+  min-width: 52px;
+  max-width: 52px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  line-height: 1;
+  border-radius: 12px;
+}
+@media (max-width: 760px) {
+  .scanner-input-wrap {
+    flex-direction: row;
+  }
+  .scanner-input-wrap .scanner-icon-btn {
+    width: 52px;
+    min-width: 52px;
+    max-width: 52px;
+  }
+}
