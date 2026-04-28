@@ -6881,6 +6881,34 @@ def criar_grupo_chat() -> Response:
     return redirect(url_for("comunicacao", group_id=gid))
 
 
+
+
+@app.post("/comunicacao/grupos/<int:group_id>/excluir")
+@login_required
+@module_required("comunicacao")
+def excluir_grupo_chat(group_id: int) -> Response:
+    if not user_is_admin(g.user):
+        return forbidden_redirect("Somente o admin pode excluir chats.")
+    with closing(get_conn()) as conn:
+        grupo = conn.execute("SELECT * FROM chat_groups WHERE id = ? AND ativo = 1", (group_id,)).fetchone()
+        if grupo is None:
+            flash("Chat não encontrado ou já excluído.", "error")
+            return redirect(url_for("comunicacao"))
+        arquivos = conn.execute("SELECT id, arquivo_path FROM chat_messages WHERE group_id = ? AND arquivo_path IS NOT NULL AND arquivo_status = 'pendente'", (group_id,)).fetchall()
+        for arq in arquivos:
+            if arq["arquivo_path"] and os.path.exists(arq["arquivo_path"]):
+                try:
+                    os.remove(arq["arquivo_path"])
+                except OSError:
+                    pass
+        conn.execute("UPDATE chat_groups SET ativo = 0 WHERE id = ?", (group_id,))
+        conn.execute("UPDATE chat_messages SET arquivo_status = CASE WHEN arquivo_path IS NOT NULL AND arquivo_status = 'pendente' THEN 'apagado_chat_excluido' ELSE arquivo_status END WHERE group_id = ?", (group_id,))
+        conn.commit()
+    registrar_auditoria("excluir_grupo_chat", "chat_groups", str(group_id), {"nome": grupo["nome"], "arquivos_apagados": len(arquivos)})
+    flash("Chat excluído pelo admin. Arquivos temporários pendentes foram apagados.", "success")
+    return redirect(url_for("comunicacao"))
+
+
 @app.post("/comunicacao/grupos/<int:group_id>/mensagem")
 @login_required
 @module_required("comunicacao")

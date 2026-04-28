@@ -22,12 +22,19 @@
       {% else %}
         <p class="muted">Somente o admin cria grupos. Você conversa nos grupos onde foi incluído.</p>
       {% endif %}
-      <div class="list-cards">
+      <div class="list-cards chat-group-list">
         {% for gpo in grupos %}
-          <a class="mini-card" href="{{ url_for('comunicacao', group_id=gpo.id) }}">
-            <strong>{{ gpo.nome }}</strong>
-            <span>{{ gpo.total_membros }} participante(s)</span>
-          </a>
+          <div class="mini-card chat-group-card">
+            <a class="chat-group-link" href="{{ url_for('comunicacao', group_id=gpo.id) }}">
+              <strong>{{ gpo.nome }}</strong>
+              <span>{{ gpo.total_membros }} participante(s)</span>
+            </a>
+            {% if user_is_admin(g.user) %}
+              <form method="post" action="{{ url_for('excluir_grupo_chat', group_id=gpo.id) }}" onsubmit="return confirm('Excluir este chat? As mensagens deixam de aparecer e arquivos temporários pendentes serão apagados.');">
+                <button class="btn danger small" type="submit">Excluir</button>
+              </form>
+            {% endif %}
+          </div>
         {% else %}
           <p class="muted">Nenhum grupo encontrado.</p>
         {% endfor %}

@@ -2522,3 +2522,6 @@ body {
   .floating-ai-compose-actions .btn { flex:1; }
   .relatorios-padaria-stats { grid-template-columns:1fr; }
 }
+
+/* Chat: admin pode excluir conversas criadas */
+.chat-group-card{display:flex;align-items:center;justify-content:space-between;gap:.75rem}.chat-group-card .chat-group-link{display:flex;flex-direction:column;gap:.2rem;color:inherit;text-decoration:none;min-width:0;flex:1}.chat-group-card form{margin:0;flex:0 0 auto}.btn.danger{background:#b42318;color:#fff;border-color:#b42318}.btn.danger:hover{filter:brightness(.95)}@media(max-width:720px){.chat-group-card{align-items:stretch}.chat-group-card .btn{width:100%}}
