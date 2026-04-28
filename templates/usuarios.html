@@ -1,5 +1,13 @@
 {% extends 'base.html' %}
 {% block content %}
+<style>
+@media (max-width: 760px){
+  .grid-2{grid-template-columns:1fr!important;}
+  .card form .card, .card{max-width:100%; overflow:hidden;}
+  .card form div[style*="grid-template-columns:repeat(2"]{grid-template-columns:1fr!important;}
+  .user-access-grid{grid-template-columns:1fr!important;}
+}
+</style>
 <section class="main"><div class="wrap grid-2">
   <div class="card">
     <h1 class="section-title">Novo usuário</h1>
@@ -7,6 +15,14 @@
       <input type="text" name="nome" placeholder="Nome" required>
       <input type="text" name="username" placeholder="Login" required>
       <input type="password" name="password" placeholder="Senha" required>
+
+      <select name="store_id">
+        <option value="">Origem do usuário: sem vínculo</option>
+        {% for loja in lojas %}
+          <option value="{{ loja.id }}">{{ loja.nome }}</option>
+        {% endfor %}
+      </select>
+      <div class="mini" style="margin:-6px 0 10px;">Use aqui para definir se o usuário pertence a uma das 21 lojas ou ao CD.</div>
 
       <select name="role" required>
         {% for role_key, role_name in role_options %}
@@ -46,6 +62,7 @@
               <span class="{{ role_badge(user.role) }}">{{ role_label(user.role) }}</span>
               <span class="badge">{{ permission_level_label(user.permission_level, user.role) }}</span>
               <span class="badge">{{ 'Ativo' if user.ativo else 'Inativo' }}</span>
+              <span class="badge">Origem: {{ user.store_nome or 'Sem vínculo' }}</span>
             </div>
           </div>
           <div class="mini">Acessos: {{ access_labels_for_user(user)|join(', ') }}</div>
@@ -54,6 +71,13 @@
         <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px;">
           <input type="text" name="nome" value="{{ user.nome }}" placeholder="Nome" required>
           <input type="text" name="username" value="{{ user.username }}" placeholder="Login" required>
+
+          <select name="store_id">
+            <option value="">Origem: sem vínculo</option>
+            {% for loja in lojas %}
+              <option value="{{ loja.id }}" {% if user.store_id == loja.id %}selected{% endif %}>{{ loja.nome }}</option>
+            {% endfor %}
+          </select>
 
           <select name="role" required>
             {% for role_key, role_name in role_options %}

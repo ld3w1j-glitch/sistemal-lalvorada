@@ -411,6 +411,8 @@ def ensure_schema_updates(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "separation_items", "conferido_em", "conferido_em TEXT")
     ensure_column(conn, "users", "permission_level", "permission_level TEXT NOT NULL DEFAULT 'comum'")
     ensure_column(conn, "users", "access_rules", "access_rules TEXT NOT NULL DEFAULT ''")
+    ensure_column(conn, "users", "store_id", "store_id INTEGER")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_users_store_id ON users(store_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_separations_lote_codigo ON separations(lote_codigo)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_items_codigo_barras ON stock_items(codigo_barras)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_items_linha_erp ON stock_items(linha_erp)")
@@ -646,6 +648,7 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL,
     permission_level TEXT NOT NULL DEFAULT 'comum',
     access_rules TEXT NOT NULL DEFAULT '',
+    store_id INTEGER,
     ativo INTEGER NOT NULL DEFAULT 1,
     criado_em TEXT NOT NULL
 );
@@ -1079,6 +1082,7 @@ def ensure_default_data() -> None:
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('usar_conferente', '1')")
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_mode', '0')")
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('code_editor_extra_password', '1')")
+        conn.execute("INSERT OR IGNORE INTO stores (nome, ativo, criado_em) VALUES ('CD', 1, ?)", (agora_iso(),))
         conn.commit()
 
 
@@ -1103,7 +1107,13 @@ def current_user() -> sqlite3.Row | None:
         return None
     with closing(get_conn()) as conn:
         return conn.execute(
-            "SELECT * FROM users WHERE id = ? AND ativo = 1", (user_id,)
+            """
+            SELECT u.*, st.nome AS store_nome
+            FROM users u
+            LEFT JOIN stores st ON st.id = u.store_id
+            WHERE u.id = ? AND u.ativo = 1
+            """,
+            (user_id,),
         ).fetchone()
 
 
@@ -1574,6 +1584,8 @@ def usuarios() -> str | Response:
         password = request.form.get("password", "")
         role = normalize_role(request.form.get("role", "separador"))
         permission_level = normalize_permission_level(request.form.get("permission_level", "comum"), role)
+        store_id_raw = request.form.get("store_id", "").strip()
+        store_id = int(store_id_raw) if store_id_raw.isdigit() else None
         access_rules = set(request.form.getlist("access_rules"))
         if permission_level == "admin":
             access_rules = set(ACCESS_KEYS)
@@ -1588,8 +1600,8 @@ def usuarios() -> str | Response:
         try:
             with closing(get_conn()) as conn:
                 conn.execute(
-                    "INSERT INTO users (nome, username, password_hash, role, permission_level, access_rules, ativo, criado_em) VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
-                    (nome, username, generate_password_hash(password), role, permission_level, serialize_access_rules(access_rules), agora_iso()),
+                    "INSERT INTO users (nome, username, password_hash, role, permission_level, access_rules, store_id, ativo, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                    (nome, username, generate_password_hash(password), role, permission_level, serialize_access_rules(access_rules), store_id, agora_iso()),
                 )
                 conn.commit()
             flash("Usuário criado com sucesso.", "success")
@@ -1597,13 +1609,20 @@ def usuarios() -> str | Response:
             flash("Esse login já existe.", "error")
         return redirect(url_for("usuarios"))
 
-    users = query_all("SELECT * FROM users ORDER BY ativo DESC, CASE permission_level WHEN 'admin' THEN 0 ELSE 1 END, role, nome")
+    users = query_all("""
+        SELECT u.*, st.nome AS store_nome
+        FROM users u
+        LEFT JOIN stores st ON st.id = u.store_id
+        ORDER BY u.ativo DESC, CASE u.permission_level WHEN 'admin' THEN 0 ELSE 1 END, u.role, u.nome
+    """)
+    lojas = query_all("SELECT id, nome FROM stores WHERE ativo = 1 ORDER BY nome")
     return render_template(
         "usuarios.html",
         title="Usuários",
         users=users,
         access_options=ACCESS_OPTIONS,
         role_options=list(ROLE_LABELS.items()),
+        lojas=lojas,
     )
 
 
@@ -1617,6 +1636,8 @@ def salvar_usuario(user_id: int) -> Response:
     role = normalize_role(request.form.get("role", "separador"))
     permission_level = normalize_permission_level(request.form.get("permission_level", "comum"), role)
     nova_senha = request.form.get("nova_senha", "")
+    store_id_raw = request.form.get("store_id", "").strip()
+    store_id = int(store_id_raw) if store_id_raw.isdigit() else None
     access_rules = set(request.form.getlist("access_rules"))
     if permission_level == "admin":
         access_rules = set(ACCESS_KEYS)
@@ -1646,8 +1667,8 @@ def salvar_usuario(user_id: int) -> Response:
 
         try:
             conn.execute(
-                "UPDATE users SET nome = ?, username = ?, role = ?, permission_level = ?, access_rules = ? WHERE id = ?",
-                (nome, username, role, permission_level, serialize_access_rules(access_rules), user_id),
+                "UPDATE users SET nome = ?, username = ?, role = ?, permission_level = ?, access_rules = ?, store_id = ? WHERE id = ?",
+                (nome, username, role, permission_level, serialize_access_rules(access_rules), store_id, user_id),
             )
             if nova_senha:
                 conn.execute(
@@ -7019,7 +7040,13 @@ def _mcp_encontrar_usuario_por_texto(conn: sqlite3.Connection, texto: str) -> sq
     termo = str(texto or "").strip().casefold()
     if not termo:
         return None
-    usuarios = conn.execute("SELECT id, nome, username FROM users WHERE ativo = 1 ORDER BY nome").fetchall()
+    usuarios = conn.execute("""
+        SELECT u.id, u.nome, u.username, u.store_id, st.nome AS loja_nome
+        FROM users u
+        LEFT JOIN stores st ON st.id = u.store_id
+        WHERE u.ativo = 1
+        ORDER BY u.nome
+    """).fetchall()
     for u in usuarios:
         nome = str(u["nome"] or "").casefold()
         username = str(u["username"] or "").casefold()
@@ -7087,7 +7114,13 @@ def _formatar_ocorrencia_mcp(tipo: str, loja_nome: str, nota_numero: str, itens:
 @login_required
 def api_mcp_usuarios() -> Response:
     with closing(get_conn()) as conn:
-        rows = conn.execute("SELECT id, nome, username, perfil FROM users WHERE ativo = 1 ORDER BY nome").fetchall()
+        rows = conn.execute("""
+            SELECT u.id, u.nome, u.username, u.role, u.store_id, st.nome AS loja_nome
+            FROM users u
+            LEFT JOIN stores st ON st.id = u.store_id
+            WHERE u.ativo = 1
+            ORDER BY u.nome
+        """).fetchall()
     return jsonify({"usuarios": [dict(r) for r in rows]})
 
 
@@ -7117,6 +7150,8 @@ def api_mcp_registrar_ocorrencia() -> Response:
         if destino is None:
             return jsonify({"error": f"Não encontrei o usuário de destino: {destino_txt}."}), 404
         loja = _mcp_encontrar_loja_por_texto(conn, loja_txt) if loja_txt else None
+        if loja is None and g.user["store_id"]:
+            loja = conn.execute("SELECT id, nome FROM stores WHERE id = ?", (int(g.user["store_id"]),)).fetchone()
         gid = _mcp_obter_grupo_direto(conn, int(destino["id"]))
         mensagem = _formatar_ocorrencia_mcp(tipo, loja["nome"] if loja else loja_txt, nota_numero, itens, relato)
         cur = conn.execute("""
@@ -7131,7 +7166,7 @@ def api_mcp_registrar_ocorrencia() -> Response:
         conn.commit()
 
     registrar_auditoria("mcp_registrar_ocorrencia_loja", "store_issue_reports", str(issue_id), {
-        "tipo": tipo, "destino": destino_txt, "loja": loja_txt, "nota_numero": nota_numero, "itens": itens
+        "tipo": tipo, "destino": destino_txt, "loja": (loja["nome"] if loja else loja_txt), "nota_numero": nota_numero, "itens": itens
     })
     return jsonify({
         "ok": True,

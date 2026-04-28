@@ -1,4 +1,4 @@
-<div class="floating-ai" id="floating-ai" data-context="{{ request.endpoint or 'mcp_teste' }}">
+<div class="floating-ai" id="floating-ai" data-context="{{ request.endpoint or 'mcp_teste' }}" data-user-store="{{ g.user.store_nome if g.user and g.user.store_nome else '' }}">
   <button type="button" class="floating-ai-button" id="floating-ai-toggle">IA</button>
   <section class="floating-ai-panel" id="floating-ai-panel" aria-live="polite">
     <div class="floating-ai-head">
@@ -97,13 +97,14 @@
       step: 'destino',
       tipo: '',
       destino: '',
-      loja: '',
+      loja: (box.dataset.userStore || ''),
       nota_numero: '',
       relato: initialText || '',
       itens: [],
       itemAtual: {}
     };
-    addMsg('bot', 'Vamos registrar uma ocorrência e enviar para o usuário correto. Para quem devo enviar? Digite o nome do usuário de destino.');
+    const origem = issueWizard.loja ? ` Sua origem cadastrada é ${issueWizard.loja}.` : '';
+    addMsg('bot', 'Vamos registrar uma ocorrência e enviar para o usuário correto.' + origem + ' Para quem devo enviar? Digite o nome do usuário de destino.');
   }
 
   function issueResumo() {
@@ -167,8 +168,21 @@
       if (t === '1' || t.includes('mercadoria sem nota')) issueWizard.tipo = 'mercadoria_sem_nota';
       else if (t === '2' || t.includes('nota') || t.includes('faltou') || t.includes('passou')) issueWizard.tipo = 'nota_sem_mercadoria';
       else issueWizard.tipo = 'outro';
-      issueWizard.step = 'loja';
-      addMsg('bot', 'De qual loja é essa ocorrência?');
+      if (issueWizard.loja) {
+        if (issueWizard.tipo === 'nota_sem_mercadoria') {
+          issueWizard.step = 'nota';
+          addMsg('bot', 'Vou usar sua origem cadastrada: ' + issueWizard.loja + '. Informe o número da nota.');
+        } else if (issueWizard.tipo === 'outro') {
+          issueWizard.step = 'relato';
+          addMsg('bot', 'Vou usar sua origem cadastrada: ' + issueWizard.loja + '. Descreva o problema com detalhes.');
+        } else {
+          issueWizard.step = 'item_codigo';
+          addMsg('bot', 'Vou usar sua origem cadastrada: ' + issueWizard.loja + '. Informe o código do produto ou código de barras da mercadoria que chegou sem nota.');
+        }
+      } else {
+        issueWizard.step = 'loja';
+        addMsg('bot', 'De qual loja é essa ocorrência?');
+      }
       return true;
     }
 
