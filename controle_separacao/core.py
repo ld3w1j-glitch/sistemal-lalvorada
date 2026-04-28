@@ -6408,6 +6408,39 @@ def detalhe_balanco(balance_id: int) -> str | Response:
     return render_template("balanco_detalhe.html", title=f"Balanço #{balance_id}", balanco=balanco, items=items, resumo=resumo)
 
 
+
+@app.get("/balanco/<int:balance_id>/checar-codigo")
+@login_required
+@module_required("balanco")
+def checar_codigo_balanco(balance_id: int) -> Response:
+    balanco = _balance_row(balance_id)
+    if balanco is None:
+        return jsonify({"ok": False, "error": "Balanço não encontrado."}), 404
+    codigo = request.args.get("codigo", "").strip()
+    if not codigo:
+        return jsonify({"ok": False, "error": "Código vazio."}), 400
+    with closing(get_conn()) as conn:
+        item = conn.execute("""
+            SELECT id, codigo, codigo_barras, descricao
+            FROM stock_items
+            WHERE ativo = 1 AND (codigo = ? OR codigo_barras = ?)
+            LIMIT 1
+            """, (codigo, codigo)).fetchone()
+        if item is None:
+            return jsonify({"ok": True, "found": False, "exists": False})
+        existente = conn.execute("""
+            SELECT quantidade_contada
+            FROM balance_count_items
+            WHERE balance_count_id = ? AND stock_item_id = ?
+            """, (balance_id, item["id"])).fetchone()
+    return jsonify({
+        "ok": True,
+        "found": True,
+        "exists": existente is not None,
+        "codigo": item["codigo"],
+        "descricao": item["descricao"],
+        "quantidade_contada": float(existente["quantidade_contada"] or 0) if existente else 0,
+    })
 @app.post("/balanco/<int:balance_id>/item/<int:item_id>/remover")
 @login_required
 @module_required("balanco")

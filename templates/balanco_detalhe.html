@@ -10,8 +10,8 @@
       <div class="stock-search-actions">
         <a class="btn btn-secondary" href="{{ url_for('balancos') }}">Voltar</a>
         <button class="btn btn-secondary" onclick="window.print()" type="button">Imprimir</button>
-        <a class="btn btn-secondary" href="{{ url_for('exportar_balanco_excel', balance_id=balanco.id) }}">Excel</a>
-        <a class="btn btn-secondary" href="{{ url_for('exportar_balanco_pdf', balance_id=balanco.id) }}">PDF</a>
+        <a class="btn btn-secondary" href="{{ url_for('exportar_balanco_excel', balance_id=balanco.id) }}">Exportar Excel</a>
+        <a class="btn btn-secondary" href="{{ url_for('exportar_balanco_pdf', balance_id=balanco.id) }}">Exportar PDF</a>
       </div>
     </div>
     <div class="grid-4">
@@ -23,16 +23,14 @@
     {% if balanco.status == 'ABERTO' %}
     <div class="card" style="margin-top:16px;">
       <h2 class="section-title">Registrar mercadoria contada</h2>
-      <form method="post" class="stock-search-form">
+      <form method="post" class="stock-search-form balance-count-form" id="balance-count-form">
+        <input type="hidden" id="modo_balanco" name="modo" value="substituir">
         <div class="scanner-input-wrap">
           <input type="text" id="codigo_balanco" name="codigo" placeholder="Código ou código de barras" autocomplete="off" autofocus required>
           <button type="button" class="btn-secondary scanner-icon-btn" id="btn-camera-balanco" aria-label="Ler código pela câmera" title="Ler código pela câmera">📷</button>
         </div>
         <input type="text" id="quantidade_balanco" name="quantidade_contada" placeholder="Quantidade contada" required>
-        <select name="modo">
-          <option value="substituir">Substituir contagem do item</option>
-          <option value="somar">Somar com contagem já lançada</option>
-        </select>
+        <div class="balance-duplicate-help" id="balance-duplicate-help" hidden></div>
         <button type="submit">Registrar</button>
       </form>
       <p class="mini">Dica: use “somar” quando contar o mesmo produto em mais de um local do estoque.</p>
@@ -44,10 +42,16 @@
           <h2 class="section-title" style="margin:0;">Relatório de comparação</h2>
           <p class="muted" style="margin:4px 0 0;">Compare antes de confirmar. A coluna diferença mostra o que vai entrar ou sair do estoque.</p>
         </div>
-        {% if balanco.status == 'ABERTO' and can_edit_stock_registration(g.user) and items %}
-        <form method="post" action="{{ url_for('confirmar_balanco', balance_id=balanco.id) }}" onsubmit="return confirm('Confirmar balanço e atualizar o estoque com as quantidades contadas?')">
-          <button class="btn-danger" type="submit">Confirmar e atualizar estoque</button>
-        </form>
+        {% if items %}
+        <div class="balance-export-actions no-print">
+          <a class="btn btn-secondary" href="{{ url_for('exportar_balanco_excel', balance_id=balanco.id) }}">Exportar antes de confirmar - Excel</a>
+          <a class="btn btn-secondary" href="{{ url_for('exportar_balanco_pdf', balance_id=balanco.id) }}">Exportar antes de confirmar - PDF</a>
+          {% if balanco.status == 'ABERTO' and can_edit_stock_registration(g.user) %}
+          <form method="post" action="{{ url_for('confirmar_balanco', balance_id=balanco.id) }}" onsubmit="return confirm('Confirmar balanço e atualizar o estoque com as quantidades contadas?')">
+            <button class="btn-danger" type="submit">Confirmar e atualizar estoque</button>
+          </form>
+          {% endif %}
+        </div>
         {% endif %}
       </div>
       {% if items %}
@@ -57,14 +61,14 @@
           <tbody>
             {% for i in items %}
             <tr class="{% if i.delta > 0 %}row-positive{% elif i.delta < 0 %}row-negative{% endif %}">
-              <td>{{ i.linha_erp or '-' }}</td>
-              <td>{{ i.codigo }}</td>
-              <td>{{ i.descricao }}</td>
-              <td>{{ fmt_num(i.quantidade_sistema) }}</td>
-              <td><strong>{{ fmt_num(i.quantidade_contada) }}</strong></td>
-              <td><strong>{{ fmt_num(i.delta) }}</strong></td>
-              <td>R$ {{ fmt_num(i.custo_unitario) }}</td>
-              <td>R$ {{ fmt_num((i.delta or 0) * (i.custo_unitario or 0)) }}</td>
+              <td data-label="Linha">{{ i.linha_erp or '-' }}</td>
+              <td data-label="Código">{{ i.codigo }}</td>
+              <td data-label="Descrição">{{ i.descricao }}</td>
+              <td data-label="Qtd sistema">{{ fmt_num(i.quantidade_sistema) }}</td>
+              <td data-label="Qtd contada"><strong>{{ fmt_num(i.quantidade_contada) }}</strong></td>
+              <td data-label="Diferença"><strong>{{ fmt_num(i.delta) }}</strong></td>
+              <td data-label="Custo">R$ {{ fmt_num(i.custo_unitario) }}</td>
+              <td data-label="Valor diferença">R$ {{ fmt_num((i.delta or 0) * (i.custo_unitario or 0)) }}</td>
               {% if balanco.status == 'ABERTO' %}
               <td class="no-print">
                 <form method="post" action="{{ url_for('remover_item_balanco', balance_id=balanco.id, item_id=i.id) }}" onsubmit="return confirm('Remover este item da contagem?')">
@@ -106,12 +110,17 @@
 (function(){
   const codigoInput = document.getElementById('codigo_balanco');
   const quantidadeInput = document.getElementById('quantidade_balanco');
+  const modoInput = document.getElementById('modo_balanco');
+  const form = document.getElementById('balance-count-form');
+  const duplicateHelp = document.getElementById('balance-duplicate-help');
   const btnCamera = document.getElementById('btn-camera-balanco');
   const modal = document.getElementById('scanner-modal-balanco');
   const video = document.getElementById('scanner-video-balanco');
   const status = document.getElementById('scanner-status-balanco');
+  const checkUrl = "{{ url_for('checar_codigo_balanco', balance_id=balanco.id) }}";
   let stream = null;
   let scanning = false;
+  let liberadoSubmit = false;
 
   function fecharScanner() {
     scanning = false;
@@ -122,6 +131,40 @@
     if (video) video.srcObject = null;
     if (modal) modal.hidden = true;
     document.body.classList.remove('scanner-open');
+  }
+
+  async function checarCodigo(codigo) {
+    if (!codigo) return null;
+    try {
+      const resp = await fetch(checkUrl + '?codigo=' + encodeURIComponent(codigo), { headers: { 'Accept': 'application/json' } });
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function tratarCodigoRepetido(codigo) {
+    const info = await checarCodigo(codigo);
+    if (!info || !info.exists) {
+      if (duplicateHelp) duplicateHelp.hidden = true;
+      if (modoInput) modoInput.value = 'substituir';
+      return true;
+    }
+    const msg = `Este item já está na contagem:\n\n${info.codigo} - ${info.descricao || ''}\nQuantidade já contada: ${info.quantidade_contada}\n\nDeseja SOMAR a nova quantidade com a contagem existente?`;
+    if (confirm(msg)) {
+      if (modoInput) modoInput.value = 'somar';
+      if (duplicateHelp) {
+        duplicateHelp.hidden = false;
+        duplicateHelp.textContent = 'Item já existente: a próxima quantidade será SOMADA com a contagem atual.';
+      }
+      return true;
+    }
+    if (duplicateHelp) {
+      duplicateHelp.hidden = false;
+      duplicateHelp.textContent = 'Registro cancelado. Altere o código ou a quantidade antes de continuar.';
+    }
+    return false;
   }
 
   async function abrirScanner() {
@@ -150,6 +193,7 @@
             status.textContent = 'Código lido: ' + valor;
             if (navigator.vibrate) navigator.vibrate(80);
             fecharScanner();
+            await tratarCodigoRepetido(valor);
             if (quantidadeInput) quantidadeInput.focus();
             return;
           }
@@ -162,10 +206,23 @@
     }
   }
 
+  if (form) {
+    form.addEventListener('submit', async function(ev){
+      if (liberadoSubmit) return;
+      ev.preventDefault();
+      const codigo = codigoInput ? codigoInput.value.trim() : '';
+      const podeEnviar = await tratarCodigoRepetido(codigo);
+      if (!podeEnviar) return;
+      liberadoSubmit = true;
+      form.submit();
+    });
+  }
+
   if (btnCamera) btnCamera.addEventListener('click', abrirScanner);
   document.querySelectorAll('[data-scanner-close="balanco"]').forEach(btn => btn.addEventListener('click', fecharScanner));
 })();
 </script>
+
 
 <style>
 @media print {
@@ -175,5 +232,72 @@
 }
 .row-positive td { background: rgba(63, 126, 51, .08); }
 .row-negative td { background: rgba(180, 40, 40, .08); }
+.balance-duplicate-help {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 143, 24, .35);
+  border-radius: 12px;
+  background: rgba(239, 143, 24, .10);
+  color: #744303;
+  font-weight: 700;
+}
+.balance-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+.balance-export-actions form { margin: 0; }
+.balance-count-form .scanner-input-wrap,
+.balance-count-form input,
+.balance-count-form button {
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  .balance-export-actions { width: 100%; justify-content: stretch; }
+  .balance-export-actions a,
+  .balance-export-actions form,
+  .balance-export-actions button { width: 100%; }
+  .balance-count-form { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  .balance-count-form .scanner-input-wrap { width: 100%; }
+  .table-wrap { overflow: visible; }
+  .table-wrap table,
+  .table-wrap thead,
+  .table-wrap tbody,
+  .table-wrap tr,
+  .table-wrap th,
+  .table-wrap td { display: block; width: 100%; }
+  .table-wrap thead { display: none; }
+  .table-wrap tr {
+    border: 1px solid var(--line, #ddd6c9);
+    border-radius: 16px;
+    margin-bottom: 12px;
+    padding: 10px;
+    background: #fff;
+    box-shadow: 0 8px 20px rgba(74, 54, 24, .06);
+    overflow: hidden;
+  }
+  .table-wrap td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border: 0 !important;
+    padding: 8px 4px;
+    text-align: right;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .table-wrap td::before {
+    content: attr(data-label);
+    flex: 0 0 42%;
+    text-align: left;
+    font-weight: 800;
+    color: var(--muted, #6f6f6f);
+  }
+  .table-wrap td.no-print::before { content: ''; display: none; }
+  .table-wrap td.no-print form,
+  .table-wrap td.no-print button { width: 100%; }
+}
 </style>
 {% endblock %}
