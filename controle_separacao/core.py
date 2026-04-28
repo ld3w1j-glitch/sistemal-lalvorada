@@ -2275,6 +2275,8 @@ def _mcp_normalizar_expressao_calculo(texto: str) -> str:
     trocas = [
         (r"\bcalcule\b", " "),
         (r"\bcalcular\b", " "),
+        (r"\bquantos?\s+é\b", " "),
+        (r"\bquantos?\s+e\b", " "),
         (r"\bquanto\s+é\b", " "),
         (r"\bquanto\s+e\b", " "),
         (r"\bqual\s+é\s+o\s+resultado\s+de\b", " "),
@@ -2297,7 +2299,7 @@ def _mcp_tentar_calculo(texto: str) -> dict[str, Any] | None:
     """Detecta comandos de cálculo e devolve uma resposta MCP tabular."""
     original = str(texto or "").strip()
     lower = original.casefold()
-    parece_calculo = any(p in lower for p in ["calcule", "calcular", "quanto é", "quanto e", "resultado de", "vezes", "dividido"]) or bool(re.fullmatch(r"[\d\s\.,\+\-\*\/\%\(\)]+", original))
+    parece_calculo = any(p in lower for p in ["calcule", "calcular", "quanto é", "quanto e", "quantos é", "quantos e", "resultado de", "vezes", "dividido"]) or bool(re.fullmatch(r"[\d\s\.,\+\-\*\/\%\(\)]+", original))
     if not parece_calculo:
         return None
     expr = _mcp_normalizar_expressao_calculo(original)
@@ -2432,6 +2434,75 @@ def _mcp_filtro_texto(filtros: dict[str, Any], chave: str, padrao: str = "") -> 
     return str(filtros.get(chave) if filtros.get(chave) is not None else padrao).strip()
 
 
+
+def _mcp_resposta_chat_natural(texto: str) -> dict[str, Any] | None:
+    """Respostas naturais para o assistente flutuante quando a mensagem não é uma consulta do sistema."""
+    original = str(texto or "").strip()
+    lower = original.casefold()
+    if not original:
+        return None
+
+    saudacoes = {"oi", "olá", "ola", "bom dia", "boa tarde", "boa noite", "e ai", "e aí", "opa"}
+    if lower in saudacoes or any(lower.startswith(s + " ") for s in saudacoes):
+        nome = ""
+        try:
+            nome = (g.user["nome"] or g.user["username"] or "").split()[0]
+        except Exception:
+            nome = ""
+        return {
+            "tool": "chat_natural",
+            "answer": f"Bom dia{', ' + nome if nome else ''}! Eu sou o assistente MCP/IA. Pode conversar comigo normalmente ou pedir ações do sistema. Ex.: calcule 10+20, estoque baixo, lotes abertos, status do sistema, ou procurar um produto.",
+            "raw": {"mensagem": original},
+            "table": _mcp_normalizar_para_tabela([], "chat_natural", "Conversa"),
+            "query": original,
+            "linha": "",
+            "filtros": {},
+            "acoes_sugeridas": [],
+        }
+
+    if any(p in lower for p in ["o que voce faz", "o que você faz", "me ajuda", "ajuda", "como funciona", "o que consegue", "comandos"]):
+        return {
+            "tool": "chat_natural",
+            "answer": "Eu consigo conversar, calcular e consultar o sistema. Posso verificar estoque, produtos, lotes abertos, movimentações, status do sistema e preparar ações como relatório ou lista de balanço. Quando for algo sensível, eu peço sua senha antes.",
+            "raw": {"mensagem": original},
+            "table": _mcp_normalizar_para_tabela([], "chat_natural", "Ajuda do assistente"),
+            "query": original,
+            "linha": "",
+            "filtros": {},
+            "acoes_sugeridas": [],
+        }
+
+    if any(p in lower for p in ["obrigado", "obrigada", "valeu", "show", "blz", "beleza"]):
+        return {
+            "tool": "chat_natural",
+            "answer": "Fechado! Quando precisar, é só me chamar por aqui.",
+            "raw": {"mensagem": original},
+            "table": _mcp_normalizar_para_tabela([], "chat_natural", "Conversa"),
+            "query": original,
+            "linha": "",
+            "filtros": {},
+            "acoes_sugeridas": [],
+        }
+
+    # Pergunta comum sem intenção clara de consulta: responde como chatbot, sem forçar pesquisa vazia.
+    palavras_sistema = [
+        "estoque", "produto", "item", "codigo", "código", "barras", "lote", "loja", "movimenta",
+        "histórico", "historico", "baixo", "zerado", "saldo", "categoria", "linha", "status", "sistema",
+        "listar", "buscar", "pesquisar", "procurar", "relatorio", "relatório", "balanço", "balanco",
+    ]
+    if not any(p in lower for p in palavras_sistema):
+        return {
+            "tool": "chat_natural",
+            "answer": "Entendi. Eu posso conversar com você por aqui, mas minha inteligência principal está ligada ao sistema. Para eu executar algo real, me peça de forma direta, por exemplo: 'calcule 10+20', 'ver estoque baixo', 'listar lotes abertos' ou 'consultar produto 123'.",
+            "raw": {"mensagem": original},
+            "table": _mcp_normalizar_para_tabela([], "chat_natural", "Conversa"),
+            "query": original,
+            "linha": "",
+            "filtros": {},
+            "acoes_sugeridas": [],
+        }
+    return None
+
 def _executar_pergunta_mcp(mensagem: str, *, modo: str = "chat", linha: str = "", filtros: dict[str, Any] | None = None) -> dict[str, Any]:
     """Roteador mais tolerante para testar as mesmas consultas expostas no MCP."""
     texto = str(mensagem or "").strip()
@@ -2450,6 +2521,10 @@ def _executar_pergunta_mcp(mensagem: str, *, modo: str = "chat", linha: str = ""
     calculo = _mcp_tentar_calculo(texto)
     if calculo is not None:
         return calculo
+
+    conversa = _mcp_resposta_chat_natural(texto)
+    if conversa is not None:
+        return conversa
 
     try:
         from . import mcp_server as mcp_tools
@@ -2621,6 +2696,17 @@ def _executar_pergunta_mcp(mensagem: str, *, modo: str = "chat", linha: str = ""
             tool = "pesquisar_geral"
             resultado = mcp_tools.pesquisar_geral(termo=termo, limite=min(limite, 50), linha=linha_filtro)
             titulo = f"Pesquisa geral por: {termo}"
+        if not resultado:
+            return {
+                "tool": "chat_natural",
+                "answer": f"Não encontrei nada para '{termo}'. Posso tentar de outro jeito se você mandar o código, parte da descrição, lote ou loja.",
+                "raw": [],
+                "table": _mcp_normalizar_para_tabela([], "chat_natural", "Conversa"),
+                "query": texto,
+                "linha": linha_filtro,
+                "filtros": filtros,
+                "acoes_sugeridas": [],
+            }
 
     if linha_filtro and tool in {"listar_produtos_estoque", "listar_estoque_baixo", "pesquisar_geral", "buscar_produtos_avancado", "resumo_estoque_por_linha"}:
         titulo = f"{titulo} | Linha: {linha_filtro}"
