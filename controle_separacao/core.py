@@ -9,6 +9,8 @@ import sqlite3
 import uuid
 import difflib
 import traceback
+import ast
+import operator
 from pathlib import Path
 from contextlib import closing
 from datetime import datetime
@@ -2227,6 +2229,109 @@ def _resumir_resultado_mcp(resultado: Any, limite_linhas: int = 12, tool: str = 
     return "\n".join(linhas)
 
 
+
+
+# =========================
+# MCP INTELIGENTE - CÁLCULOS SEGUROS
+# =========================
+_MCP_OPERADORES_CALCULO = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+}
+_MCP_OPERADORES_UNARIOS = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+
+
+def _mcp_avaliar_no_calculo(node: ast.AST) -> float:
+    """Avalia apenas números e operações matemáticas básicas. Não executa código Python."""
+    if isinstance(node, ast.Expression):
+        return _mcp_avaliar_no_calculo(node.body)
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return node.value
+    if hasattr(ast, "Num") and isinstance(node, ast.Num):  # compatibilidade
+        return node.n
+    if isinstance(node, ast.BinOp) and type(node.op) in _MCP_OPERADORES_CALCULO:
+        esquerda = _mcp_avaliar_no_calculo(node.left)
+        direita = _mcp_avaliar_no_calculo(node.right)
+        if isinstance(node.op, ast.Pow) and abs(direita) > 12:
+            raise ValueError("Expoente muito alto para cálculo seguro.")
+        return _MCP_OPERADORES_CALCULO[type(node.op)](esquerda, direita)
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _MCP_OPERADORES_UNARIOS:
+        return _MCP_OPERADORES_UNARIOS[type(node.op)](_mcp_avaliar_no_calculo(node.operand))
+    raise ValueError("Use apenas números e operadores +, -, *, /, %, //, ** e parênteses.")
+
+
+def _mcp_normalizar_expressao_calculo(texto: str) -> str:
+    bruto = str(texto or "").strip().lower()
+    bruto = bruto.replace("×", "*").replace("x", "*").replace("÷", "/")
+    bruto = bruto.replace(",", ".")
+    trocas = [
+        (r"\bcalcule\b", " "),
+        (r"\bcalcular\b", " "),
+        (r"\bquanto\s+é\b", " "),
+        (r"\bquanto\s+e\b", " "),
+        (r"\bqual\s+é\s+o\s+resultado\s+de\b", " "),
+        (r"\bfaz\b", " "),
+        (r"\bvezes\b", " * "),
+        (r"\bmais\b", " + "),
+        (r"\bmenos\b", " - "),
+        (r"\bdividido\s+por\b", " / "),
+        (r"\bdividido\b", " / "),
+        (r"\bporcento\b", " /100 "),
+    ]
+    for padrao, repl in trocas:
+        bruto = re.sub(padrao, repl, bruto, flags=re.IGNORECASE)
+    bruto = re.sub(r"[^0-9\.\+\-\*\/\%\(\)\s]", " ", bruto)
+    bruto = re.sub(r"\s+", "", bruto)
+    return bruto.strip()
+
+
+def _mcp_tentar_calculo(texto: str) -> dict[str, Any] | None:
+    """Detecta comandos de cálculo e devolve uma resposta MCP tabular."""
+    original = str(texto or "").strip()
+    lower = original.casefold()
+    parece_calculo = any(p in lower for p in ["calcule", "calcular", "quanto é", "quanto e", "resultado de", "vezes", "dividido"]) or bool(re.fullmatch(r"[\d\s\.,\+\-\*\/\%\(\)]+", original))
+    if not parece_calculo:
+        return None
+    expr = _mcp_normalizar_expressao_calculo(original)
+    if not expr or not re.search(r"\d", expr) or not re.search(r"[\+\-\*\/\%]", expr):
+        return None
+    try:
+        resultado = _mcp_avaliar_no_calculo(ast.parse(expr, mode="eval"))
+        if isinstance(resultado, float) and resultado.is_integer():
+            resultado_fmt = str(int(resultado))
+        else:
+            resultado_fmt = (f"{resultado:.6f}".rstrip("0").rstrip(".") if isinstance(resultado, float) else str(resultado))
+    except Exception as exc:
+        return {
+            "tool": "calculadora_segura",
+            "answer": f"Não consegui calcular com segurança: {exc}",
+            "raw": {"expressao": expr, "erro": str(exc)},
+            "table": _mcp_normalizar_para_tabela({"expressao": expr, "erro": str(exc)}, "calculadora_segura", "Cálculo"),
+            "query": original,
+            "linha": "",
+            "filtros": {},
+            "acoes_sugeridas": [],
+        }
+    return {
+        "tool": "calculadora_segura",
+        "answer": f"Resultado: {resultado_fmt}",
+        "raw": {"expressao": expr, "resultado": resultado_fmt},
+        "table": _mcp_normalizar_para_tabela({"expressao": expr, "resultado": resultado_fmt}, "calculadora_segura", "Cálculo"),
+        "query": original,
+        "linha": "",
+        "filtros": {},
+        "acoes_sugeridas": [],
+    }
+
+
 def _mcp_extrair_limite(texto: str, padrao: int = 30, maximo: int = 200) -> int:
     bruto = str(texto or "")
     patterns = [
@@ -2337,10 +2442,14 @@ def _executar_pergunta_mcp(mensagem: str, *, modo: str = "chat", linha: str = ""
     if not texto:
         return {
             "tool": "nenhuma",
-            "answer": "Digite uma pergunta, por exemplo: estoque baixo, farinha, produto 123, lote ABC ou movimentações do estoque.",
+            "answer": "Digite uma pergunta, por exemplo: calcule 10*3, estoque baixo, farinha, produto 123, lote ABC ou movimentações do estoque.",
             "raw": [],
             "table": _mcp_normalizar_para_tabela([], "nenhuma"),
         }
+
+    calculo = _mcp_tentar_calculo(texto)
+    if calculo is not None:
+        return calculo
 
     try:
         from . import mcp_server as mcp_tools
@@ -3442,6 +3551,8 @@ def mcp_teste() -> str:
         consultas_salvas=_mcp_lista_consultas_salvas(contexto),
         historico_mcp=_mcp_lista_historico(contexto, limite=25),
         exemplos=[
+            "calcule 10*3",
+            "quanto é 150 + 20%",
             "status do sistema",
             "resumo por linha limite 50",
             "listar categorias limite 50",
