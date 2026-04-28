@@ -19,8 +19,8 @@
       </div>
       {% endif %}
       <form method="post" action="{{ url_for('remover_balanco', balance_id=balanco.id) }}">
-        <label>Confirme sua senha de admin</label>
-        <input type="password" name="senha_admin" placeholder="Senha do admin" required autocomplete="current-password">
+        <label>Confirme sua senha</label>
+        <input type="password" name="senha_admin" placeholder="Sua senha" required autocomplete="current-password">
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
           <a class="btn btn-secondary" href="{{ url_for('balancos') }}">Cancelar</a>
           <button type="submit" style="background:#dc2626; border-color:#dc2626; color:white;">Sim, remover balanço</button>

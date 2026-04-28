@@ -398,6 +398,7 @@ def ensure_schema_updates(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "stock_items", "linha_erp", "linha_erp TEXT")
     ensure_column(conn, "stock_items", "erp_loja", "erp_loja TEXT")
     ensure_column(conn, "stock_items", "erp_nivel", "erp_nivel TEXT")
+    ensure_column(conn, "stock_items", "linha_caminho_erp", "linha_caminho_erp TEXT")
     ensure_column(conn, "stock_items", "erp_data_base", "erp_data_base TEXT")
     ensure_column(conn, "stock_items", "erp_atualizado_em", "erp_atualizado_em TEXT")
     ensure_column(conn, "separation_items", "fator_embalagem", "fator_embalagem REAL NOT NULL DEFAULT 1")
@@ -581,6 +582,7 @@ CREATE TABLE IF NOT EXISTS stock_items (
     linha_erp TEXT,
     erp_loja TEXT,
     erp_nivel TEXT,
+    linha_caminho_erp TEXT,
     erp_data_base TEXT,
     erp_atualizado_em TEXT,
     ativo INTEGER NOT NULL DEFAULT 1,
@@ -4064,7 +4066,8 @@ def importar_estoque_erp_preview() -> Response:
             rows,
         )
         conn.commit()
-    registrar_auditoria("preview_importacao_erp", "erp_stock_imports", str(import_id), {"filename": filename, "produtos": len(preparados)})
+    # Não registra auditoria/movimentação apenas por importar a prévia do arquivo do estoque.
+    # A tela deve ficar limpa; movimentações devem aparecer somente para balanço e alterações manuais do estoque.
     flash("Arquivo do ERP lido com sucesso. Confira o resumo antes de aplicar no estoque.", "success")
     return redirect(url_for("detalhe_importacao_erp", import_id=import_id))
 
@@ -4127,23 +4130,21 @@ def aplicar_importacao_erp(import_id: int) -> Response:
                 cur = conn.execute(
                     """
                     INSERT INTO stock_items
-                    (codigo, codigo_barras, descricao, fator_embalagem, quantidade_atual, custo_unitario, linha_erp, erp_loja, erp_nivel, erp_data_base, erp_atualizado_em, ativo, atualizado_em)
-                    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                    (codigo, codigo_barras, descricao, fator_embalagem, quantidade_atual, custo_unitario, linha_erp, erp_loja, erp_nivel, linha_caminho_erp, erp_data_base, erp_atualizado_em, ativo, atualizado_em)
+                    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
                     """,
                     (
                         item["codigo"], item["codigo_barras"] or "", item["descricao"], saldo_erp,
-                        custo, item["linha"] or "", importacao["loja"] or "", item["nivel"] or "", importacao["data_base"] or "", agora, agora,
+                        custo, item["linha"] or "", importacao["loja"] or "", item["nivel"] or "", item["caminho_linha"] or "", importacao["data_base"] or "", agora, agora,
                     ),
                 )
                 stock_item_id = int(cur.lastrowid)
                 cadastrados += 1
                 delta = saldo_erp
+                # Importação de arquivo do estoque não gera movimentação para não poluir o histórico.
+                # O saldo inicial do produto fica salvo no cadastro do estoque.
                 if abs(delta) > 0.000001:
-                    conn.execute(
-                        "INSERT INTO stock_movements (stock_item_id, tipo, quantidade, observacao, referencia_tipo, referencia_id, criado_por, criado_em) VALUES (?, 'IMPORTACAO_ERP_NOVO', ?, ?, 'ERP_IMPORT', ?, ?, ?)",
-                        (stock_item_id, delta, f"Novo produto via ERP #{import_id} - {importacao['filename']}", import_id, g.user["id"], agora),
-                    )
-                    movimentos += 1
+                    pass
             else:
                 stock_item_id = int(existente["id"])
                 saldo_anterior = float(existente["quantidade_atual"] or 0)
@@ -4160,6 +4161,7 @@ def aplicar_importacao_erp(import_id: int) -> Response:
                             linha_erp = ?,
                             erp_loja = ?,
                             erp_nivel = ?,
+                            linha_caminho_erp = ?,
                             erp_data_base = ?,
                             erp_atualizado_em = ?,
                             ativo = 1,
@@ -4168,29 +4170,27 @@ def aplicar_importacao_erp(import_id: int) -> Response:
                         """,
                         (
                             item["codigo_barras"] or "", item["descricao"], nova_quantidade,
-                            custo, custo, item["linha"] or "", importacao["loja"] or "", item["nivel"] or "", importacao["data_base"] or "", agora, agora, stock_item_id,
+                            custo, custo, item["linha"] or "", importacao["loja"] or "", item["nivel"] or "", item["caminho_linha"] or "", importacao["data_base"] or "", agora, agora, stock_item_id,
                         ),
                     )
                     atualizados += 1
+                # Importação de arquivo do estoque não gera movimentação para não poluir o histórico.
+                # Registros de movimentação ficam reservados para balanço e alterações manuais do estoque.
                 if modo == "atualizar_saldo" and abs(delta) > 0.000001:
-                    conn.execute(
-                        "INSERT INTO stock_movements (stock_item_id, tipo, quantidade, observacao, referencia_tipo, referencia_id, criado_por, criado_em) VALUES (?, 'IMPORTACAO_ERP', ?, ?, 'ERP_IMPORT', ?, ?, ?)",
-                        (stock_item_id, delta, f"Atualização de saldo via ERP #{import_id} - {importacao['filename']}", import_id, g.user["id"], agora),
-                    )
-                    movimentos += 1
+                    pass
             conn.execute(
                 "UPDATE erp_stock_import_items SET stock_item_id = ?, saldo_anterior = COALESCE(saldo_anterior, ?), delta = ?, status = 'APLICADO' WHERE id = ?",
                 (stock_item_id, item["saldo_anterior"], delta, item["id"]),
             )
         resumo = _erp_resumo_from_json(importacao)
-        resumo.update({"modo_aplicado": modo, "atualizados": atualizados, "cadastrados": cadastrados, "movimentos": movimentos})
+        resumo.update({"modo_aplicado": modo, "atualizados": atualizados, "cadastrados": cadastrados, "movimentos": 0, "observacao_movimentos": "Importação de estoque não gera movimentações no histórico."})
         conn.execute(
             "UPDATE erp_stock_imports SET status = 'APLICADO', modo = ?, resumo_json = ?, aplicado_em = ? WHERE id = ?",
             (modo, json.dumps(resumo, ensure_ascii=False), agora, import_id),
         )
         conn.commit()
-    registrar_auditoria("aplicar_importacao_erp", "erp_stock_imports", str(import_id), {"modo": modo, "atualizados": atualizados, "cadastrados": cadastrados, "movimentos": movimentos})
-    flash(f"Importação aplicada: {cadastrados} novo(s), {atualizados} atualizado(s), {movimentos} movimentação(ões) registradas.", "success")
+    # Não registra auditoria/movimentação da importação em massa para evitar excesso de registros na tela.
+    flash(f"Importação aplicada: {cadastrados} novo(s), {atualizados} atualizado(s). Nenhuma movimentação foi registrada no histórico.", "success")
     return redirect(url_for("detalhe_importacao_erp", import_id=import_id))
 
 
@@ -5906,83 +5906,98 @@ def detalhe_historico_lote(lote_codigo: str) -> str | Response:
     )
 
 
-def _dados_relatorio_gerencial(periodo_dias: int = 30) -> dict[str, Any]:
+def _where_linha_relatorio(alias: str, linha_base: str = "", sublinha: str = "") -> tuple[str, list[Any]]:
+    conds: list[str] = []
+    params: list[Any] = []
+    campos = f"LOWER(COALESCE({alias}.linha_caminho_erp, '') || ' ' || COALESCE({alias}.linha_erp, '') || ' ' || COALESCE({alias}.descricao, ''))"
+    for termo in (linha_base, sublinha):
+        termo = str(termo or "").strip()
+        if not termo:
+            continue
+        palavras = [p for p in re.split(r"[\s\-/]+", termo.casefold()) if len(p) >= 2]
+        for palavra in palavras:
+            conds.append(f"{campos} LIKE ?")
+            params.append(f"%{palavra}%")
+    if not conds:
+        return "", []
+    return " AND " + " AND ".join(conds), params
+
+
+def _dados_relatorio_gerencial(periodo_dias: int = 30, linha_base: str = "Padaria - Industria CD", sublinha: str = "") -> dict[str, Any]:
     periodo = max(1, min(int(periodo_dias or 30), 365))
+    linha_base = str(linha_base or "Padaria - Industria CD").strip() or "Padaria - Industria CD"
+    sublinha = str(sublinha or "").strip()
+    where_st, params_st = _where_linha_relatorio("st", linha_base, sublinha)
+    where_base, params_base = _where_linha_relatorio("st", linha_base, "")
     with closing(get_conn()) as conn:
-        resumo = conn.execute(
-            """
-            SELECT COUNT(DISTINCT s.id) AS separacoes,
-                   COUNT(DISTINCT s.lote_codigo) AS lotes,
-                   COUNT(DISTINCT s.store_id) AS lojas,
-                   COALESCE(SUM(si.quantidade_separada), 0) AS quantidade,
+        resumo = conn.execute(f"""
+            SELECT COUNT(DISTINCT s.id) AS separacoes, COUNT(DISTINCT s.lote_codigo) AS lotes,
+                   COUNT(DISTINCT s.store_id) AS lojas, COALESCE(SUM(si.quantidade_separada), 0) AS quantidade,
                    COALESCE(SUM(si.quantidade_separada * si.custo_unitario_ref), 0) AS custo
             FROM separations s
             LEFT JOIN separation_items si ON si.separation_id = s.id
-            WHERE date(COALESCE(s.finalizado_em, s.criado_em)) >= date('now', ?)
-            """,
-            (f"-{periodo} days",),
-        ).fetchone()
-        estoque = conn.execute(
-            """
+            LEFT JOIN stock_items st ON st.codigo = si.codigo
+            WHERE date(COALESCE(s.finalizado_em, s.criado_em)) >= date('now', ?) {where_st}
+        """, [f"-{periodo} days", *params_st]).fetchone()
+        estoque = conn.execute(f"""
             SELECT COUNT(*) AS produtos,
                    SUM(CASE WHEN quantidade_atual <= 0 THEN 1 ELSE 0 END) AS zerados,
                    SUM(CASE WHEN quantidade_atual > 0 AND quantidade_atual <= 10 THEN 1 ELSE 0 END) AS baixo,
                    COALESCE(SUM(quantidade_atual * custo_unitario), 0) AS valor_estoque
-            FROM stock_items
-            WHERE ativo = 1
-            """
-        ).fetchone()
-        top_itens = conn.execute(
-            """
-            SELECT si.codigo, si.descricao, SUM(si.quantidade_separada) AS quantidade, SUM(si.quantidade_separada * si.custo_unitario_ref) AS custo
+            FROM stock_items st WHERE ativo = 1 {where_st}
+        """, params_st).fetchone()
+        top_itens = conn.execute(f"""
+            SELECT si.codigo, si.descricao, COALESCE(st.linha_erp, '') AS linha_erp,
+                   SUM(si.quantidade_separada) AS quantidade, SUM(si.quantidade_separada * si.custo_unitario_ref) AS custo
             FROM separation_items si
             JOIN separations s ON s.id = si.separation_id
-            WHERE date(COALESCE(s.finalizado_em, s.criado_em)) >= date('now', ?)
-            GROUP BY si.codigo, si.descricao
-            ORDER BY quantidade DESC
-            LIMIT 15
-            """,
-            (f"-{periodo} days",),
-        ).fetchall()
-        criticos = conn.execute(
-            """
-            SELECT codigo, descricao, quantidade_atual, custo_unitario, atualizado_em
-            FROM stock_items
-            WHERE ativo = 1 AND quantidade_atual <= 10
-            ORDER BY quantidade_atual ASC, descricao COLLATE NOCASE ASC
-            LIMIT 30
-            """
-        ).fetchall()
-        lojas = conn.execute(
-            """
-            SELECT st.nome AS loja, SUM(si.quantidade_separada) AS quantidade, SUM(si.quantidade_separada * si.custo_unitario_ref) AS custo
+            LEFT JOIN stock_items st ON st.codigo = si.codigo
+            WHERE date(COALESCE(s.finalizado_em, s.criado_em)) >= date('now', ?) {where_st}
+            GROUP BY si.codigo, si.descricao, st.linha_erp
+            ORDER BY quantidade DESC LIMIT 30
+        """, [f"-{periodo} days", *params_st]).fetchall()
+        criticos = conn.execute(f"""
+            SELECT codigo, descricao, linha_erp, quantidade_atual, custo_unitario, atualizado_em
+            FROM stock_items st
+            WHERE ativo = 1 AND quantidade_atual <= 10 {where_st}
+            ORDER BY quantidade_atual ASC, descricao COLLATE NOCASE ASC LIMIT 60
+        """, params_st).fetchall()
+        lojas = conn.execute(f"""
+            SELECT store.nome AS loja, SUM(si.quantidade_separada) AS quantidade, SUM(si.quantidade_separada * si.custo_unitario_ref) AS custo
             FROM separations s
-            JOIN stores st ON st.id = s.store_id
+            JOIN stores store ON store.id = s.store_id
             LEFT JOIN separation_items si ON si.separation_id = s.id
-            WHERE date(COALESCE(s.finalizado_em, s.criado_em)) >= date('now', ?)
-            GROUP BY st.id, st.nome
-            ORDER BY quantidade DESC
-            LIMIT 20
-            """,
-            (f"-{periodo} days",),
-        ).fetchall()
+            LEFT JOIN stock_items st ON st.codigo = si.codigo
+            WHERE date(COALESCE(s.finalizado_em, s.criado_em)) >= date('now', ?) {where_st}
+            GROUP BY store.id, store.nome ORDER BY quantidade DESC LIMIT 20
+        """, [f"-{periodo} days", *params_st]).fetchall()
+        sublinhas = conn.execute(f"""
+            SELECT COALESCE(NULLIF(TRIM(linha_erp), ''), 'Sem linha') AS linha, COUNT(*) AS produtos,
+                   COALESCE(SUM(quantidade_atual), 0) AS saldo,
+                   COALESCE(SUM(quantidade_atual * custo_unitario), 0) AS valor
+            FROM stock_items st WHERE ativo = 1 {where_base}
+            GROUP BY COALESCE(NULLIF(TRIM(linha_erp), ''), 'Sem linha')
+            ORDER BY linha COLLATE NOCASE ASC
+        """, params_base).fetchall()
+        linhas_resumo = conn.execute(f"""
+            SELECT COALESCE(NULLIF(TRIM(linha_erp), ''), 'Sem linha') AS linha, COUNT(*) AS produtos,
+                   SUM(CASE WHEN quantidade_atual <= 0 THEN 1 ELSE 0 END) AS zerados,
+                   SUM(CASE WHEN quantidade_atual > 0 AND quantidade_atual <= 10 THEN 1 ELSE 0 END) AS baixo,
+                   COALESCE(SUM(quantidade_atual), 0) AS saldo,
+                   COALESCE(SUM(quantidade_atual * custo_unitario), 0) AS valor
+            FROM stock_items st WHERE ativo = 1 {where_st}
+            GROUP BY COALESCE(NULLIF(TRIM(linha_erp), ''), 'Sem linha')
+            ORDER BY valor DESC, linha COLLATE NOCASE ASC LIMIT 50
+        """, params_st).fetchall()
     observacoes = []
+    filtro_nome = linha_base + ((" / " + sublinha) if sublinha else "")
     if int(estoque["zerados"] or 0) > 0:
-        observacoes.append(f"Existem {int(estoque['zerados'] or 0)} item(ns) zerado(s) que merecem conferência.")
+        observacoes.append(f"Na linha {filtro_nome}, existem {int(estoque['zerados'] or 0)} item(ns) zerado(s) que merecem conferência.")
     if int(estoque["baixo"] or 0) > 0:
-        observacoes.append(f"Existem {int(estoque['baixo'] or 0)} item(ns) com saldo baixo até 10 unidades.")
+        observacoes.append(f"Na linha {filtro_nome}, existem {int(estoque['baixo'] or 0)} item(ns) com saldo baixo até 10 unidades.")
     if not observacoes:
-        observacoes.append("Nenhum alerta crítico de estoque baixo foi encontrado neste resumo.")
-    return {
-        "periodo": periodo,
-        "gerado_em": agora_br(),
-        "resumo": resumo,
-        "estoque": estoque,
-        "top_itens": top_itens,
-        "criticos": criticos,
-        "lojas": lojas,
-        "observacoes": observacoes,
-    }
+        observacoes.append(f"Nenhum alerta crítico foi encontrado para {filtro_nome}.")
+    return {"periodo": periodo, "gerado_em": agora_br(), "linha_base": linha_base, "sublinha": sublinha, "resumo": resumo, "estoque": estoque, "top_itens": top_itens, "criticos": criticos, "lojas": lojas, "sublinhas": sublinhas, "linhas_resumo": linhas_resumo, "observacoes": observacoes}
 
 
 @app.get("/relatorios/gerencial")
@@ -5990,8 +6005,10 @@ def _dados_relatorio_gerencial(periodo_dias: int = 30) -> dict[str, Any]:
 @module_required("relatorios")
 def relatorio_gerencial() -> str:
     periodo = request.args.get("periodo", "30")
-    dados = _dados_relatorio_gerencial(int(periodo) if str(periodo).isdigit() else 30)
-    registrar_auditoria("visualizar_relatorio_gerencial", "relatorio", str(dados["periodo"]), {})
+    linha_base = request.args.get("linha_base", "Padaria - Industria CD")
+    sublinha = request.args.get("sublinha", "")
+    dados = _dados_relatorio_gerencial(int(periodo) if str(periodo).isdigit() else 30, linha_base, sublinha)
+    registrar_auditoria("visualizar_relatorio_gerencial", "relatorio", str(dados["periodo"]), {"linha_base": linha_base, "sublinha": sublinha})
     return render_template("relatorio_gerencial.html", title="Relatório gerencial", dados=dados)
 
 
@@ -6005,7 +6022,9 @@ def relatorio_gerencial_pdf() -> Response:
     from reportlab.lib.units import cm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     periodo = request.args.get("periodo", "30")
-    dados = _dados_relatorio_gerencial(int(periodo) if str(periodo).isdigit() else 30)
+    linha_base = request.args.get("linha_base", "Padaria - Industria CD")
+    sublinha = request.args.get("sublinha", "")
+    dados = _dados_relatorio_gerencial(int(periodo) if str(periodo).isdigit() else 30, linha_base, sublinha)
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1*cm, leftMargin=1*cm, topMargin=1*cm, bottomMargin=1*cm)
     styles = getSampleStyleSheet()
@@ -6449,6 +6468,8 @@ def remover_item_balanco(balance_id: int, item_id: int) -> Response:
     if balanco is None or balanco["status"] != "ABERTO":
         flash("Não é possível remover item deste balanço.", "error")
         return redirect(url_for("balancos"))
+    if not (user_is_admin(g.user) or int(balanco["criado_por"] or 0) == int(g.user["id"])):
+        return forbidden_redirect("Somente o admin ou o usuário que criou este balanço pode remover a contagem.")
     with closing(get_conn()) as conn:
         conn.execute("DELETE FROM balance_count_items WHERE id = ? AND balance_count_id = ?", (item_id, balance_id))
         conn.commit()
@@ -6500,12 +6521,13 @@ def confirmar_balanco(balance_id: int) -> Response:
 @app.get("/balanco/<int:balance_id>/remover")
 @login_required
 @module_required("balanco")
-@roles_required("admin")
 def confirmar_remover_balanco(balance_id: int) -> str | Response:
     balanco = _balance_row(balance_id)
     if balanco is None:
         flash("Contagem não encontrada.", "error")
         return redirect(url_for("balancos"))
+    if not (user_is_admin(g.user) or int(balanco["criado_por"] or 0) == int(g.user["id"])):
+        return forbidden_redirect("Somente o admin ou o usuário que criou este balanço pode remover a contagem.")
     with closing(get_conn()) as conn:
         resumo = conn.execute(
             """
@@ -6522,16 +6544,18 @@ def confirmar_remover_balanco(balance_id: int) -> str | Response:
 @app.post("/balanco/<int:balance_id>/remover")
 @login_required
 @module_required("balanco")
-@roles_required("admin")
 def remover_balanco(balance_id: int) -> Response:
     balanco = _balance_row(balance_id)
     if balanco is None:
         flash("Contagem não encontrada.", "error")
         return redirect(url_for("balancos"))
 
+    if not (user_is_admin(g.user) or int(balanco["criado_por"] or 0) == int(g.user["id"])):
+        return forbidden_redirect("Somente o admin ou o usuário que criou este balanço pode remover a contagem.")
+
     senha_admin = request.form.get("senha_admin", "")
     if not check_password_hash(g.user["password_hash"], senha_admin):
-        flash("Senha do admin incorreta. A contagem não foi removida.", "error")
+        flash("Senha incorreta. A contagem não foi removida.", "error")
         return redirect(url_for("balancos"))
 
     titulo = str(balanco["titulo"] or "")

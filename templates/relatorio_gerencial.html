@@ -1,24 +1,49 @@
 {% extends 'base.html' %}
 {% block content %}
-<main class="wrap page">
+<main class="wrap page relatorio-gerencial-page">
   <section class="card">
     <div class="section-title" style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
       <div>
         <span class="eyebrow">Relatório inteligente</span>
         <h1>Relatório gerencial</h1>
-        <p class="muted">Resumo automático dos últimos {{ dados.periodo }} dias • Gerado em {{ dados.gerado_em }}</p>
+        <p class="muted">Foco atual: <strong>{{ dados.linha_base }}</strong>{% if dados.sublinha %} / <strong>{{ dados.sublinha }}</strong>{% endif %}</p>
+        <p class="muted">Resumo dos últimos {{ dados.periodo }} dias • Gerado em {{ dados.gerado_em }}</p>
       </div>
       <div class="inline">
-        <form method="get" class="inline">
-          <select name="periodo">
-            {% for dias in [7, 15, 30, 60, 90] %}
-              <option value="{{ dias }}" {% if dados.periodo == dias %}selected{% endif %}>{{ dias }} dias</option>
-            {% endfor %}
-          </select>
-          <button class="btn btn-secondary" type="submit">Atualizar</button>
-        </form>
-        <a class="btn" href="{{ url_for('relatorio_gerencial_pdf', periodo=dados.periodo) }}">Exportar PDF</a>
+        <a class="btn" href="{{ url_for('relatorio_gerencial_pdf', periodo=dados.periodo, linha_base=dados.linha_base, sublinha=dados.sublinha) }}">Exportar PDF</a>
       </div>
+    </div>
+
+    <form method="get" class="report-filter-panel">
+      <label>
+        <span>Período</span>
+        <select name="periodo">
+          {% for dias in [7, 15, 30, 60, 90] %}
+            <option value="{{ dias }}" {% if dados.periodo == dias %}selected{% endif %}>{{ dias }} dias</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Linha principal</span>
+        <input name="linha_base" value="{{ dados.linha_base }}" placeholder="Ex: Padaria - Industria CD">
+      </label>
+      <label>
+        <span>Filtro interno da linha</span>
+        <select name="sublinha">
+          <option value="">Todas dentro da linha</option>
+          {% for linha in dados.sublinhas %}
+            <option value="{{ linha.linha }}" {% if dados.sublinha == linha.linha %}selected{% endif %}>{{ linha.linha }} — {{ linha.produtos }} item(ns)</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn btn-secondary" type="submit">Aplicar filtro</button>
+    </form>
+
+    <div class="quick-filter-row">
+      {% for nome in ['Rotiseria', 'Salgado', 'Congelado', 'Bolos', 'Pães', 'Paes', 'Confeitaria'] %}
+        <a class="chip-link {% if dados.sublinha|lower == nome|lower %}active{% endif %}" href="{{ url_for('relatorio_gerencial', periodo=dados.periodo, linha_base=dados.linha_base, sublinha=nome) }}">{{ nome }}</a>
+      {% endfor %}
+      <a class="chip-link" href="{{ url_for('relatorio_gerencial', periodo=dados.periodo, linha_base=dados.linha_base) }}">Ver tudo</a>
     </div>
 
     <div class="stats">
@@ -26,7 +51,7 @@
       <div class="stat"><span>Lotes</span><strong>{{ dados.resumo.lotes or 0 }}</strong></div>
       <div class="stat"><span>Qtd. separada</span><strong>{{ fmt_num(dados.resumo.quantidade or 0) }}</strong></div>
       <div class="stat"><span>Custo separado</span><strong>{{ fmt_money(dados.resumo.custo or 0) }}</strong></div>
-      <div class="stat"><span>Produtos ativos</span><strong>{{ dados.estoque.produtos or 0 }}</strong></div>
+      <div class="stat"><span>Produtos filtrados</span><strong>{{ dados.estoque.produtos or 0 }}</strong></div>
       <div class="stat"><span>Itens zerados</span><strong>{{ dados.estoque.zerados or 0 }}</strong></div>
       <div class="stat"><span>Estoque baixo</span><strong>{{ dados.estoque.baixo or 0 }}</strong></div>
       <div class="stat"><span>Valor estoque</span><strong>{{ fmt_money(dados.estoque.valor_estoque or 0) }}</strong></div>
@@ -41,22 +66,23 @@
       {% endfor %}
       <div class="mini-panel">
         <strong>Texto para WhatsApp</strong>
-        <p>Resumo do estoque: {{ dados.estoque.zerados or 0 }} item(ns) zerado(s), {{ dados.estoque.baixo or 0 }} com saldo baixo, valor estimado em {{ fmt_money(dados.estoque.valor_estoque or 0) }}.</p>
+        <p>{{ dados.linha_base }}{% if dados.sublinha %} / {{ dados.sublinha }}{% endif %}: {{ dados.estoque.zerados or 0 }} item(ns) zerado(s), {{ dados.estoque.baixo or 0 }} com saldo baixo, valor estimado em {{ fmt_money(dados.estoque.valor_estoque or 0) }}.</p>
       </div>
     </div>
 
     <div class="card">
-      <h2 class="section-title">Lojas no período</h2>
-      <div class="table-responsive"><table>
-        <thead><tr><th>Loja</th><th>Quantidade</th><th>Custo</th></tr></thead>
-        <tbody>
-        {% for loja in dados.lojas %}
-          <tr><td>{{ loja.loja }}</td><td>{{ fmt_num(loja.quantidade or 0) }}</td><td>{{ fmt_money(loja.custo or 0) }}</td></tr>
+      <h2 class="section-title">Resumo por sublinha</h2>
+      <div class="report-cards-mobile">
+        {% for linha in dados.linhas_resumo %}
+          <a class="mini-report-card" href="{{ url_for('relatorio_gerencial', periodo=dados.periodo, linha_base=dados.linha_base, sublinha=linha.linha) }}">
+            <strong>{{ linha.linha }}</strong>
+            <span>{{ linha.produtos }} produto(s) • {{ fmt_num(linha.saldo or 0) }} saldo</span>
+            <small>{{ linha.zerados or 0 }} zerado(s) • {{ linha.baixo or 0 }} baixo • {{ fmt_money(linha.valor or 0) }}</small>
+          </a>
         {% else %}
-          <tr><td colspan="3" class="empty">Sem lojas no período.</td></tr>
+          <p class="empty">Nenhuma sublinha encontrada para esse filtro.</p>
         {% endfor %}
-        </tbody>
-      </table></div>
+      </div>
     </div>
   </section>
 
@@ -64,34 +90,52 @@
     <div class="card">
       <h2 class="section-title">Itens mais movimentados</h2>
       <div class="table-responsive"><table>
-        <thead><tr><th>Código</th><th>Descrição</th><th>Quantidade</th><th>Custo</th></tr></thead>
+        <thead><tr><th>Código</th><th>Descrição</th><th>Linha</th><th>Quantidade</th><th>Custo</th></tr></thead>
         <tbody>
         {% for item in dados.top_itens %}
-          <tr><td>{{ item.codigo }}</td><td>{{ item.descricao }}</td><td>{{ fmt_num(item.quantidade or 0) }}</td><td>{{ fmt_money(item.custo or 0) }}</td></tr>
+          <tr><td>{{ item.codigo }}</td><td>{{ item.descricao }}</td><td>{{ item.linha_erp or '-' }}</td><td>{{ fmt_num(item.quantidade or 0) }}</td><td>{{ fmt_money(item.custo or 0) }}</td></tr>
         {% else %}
-          <tr><td colspan="4" class="empty">Sem movimentações no período.</td></tr>
+          <tr><td colspan="5" class="empty">Sem movimentações no período.</td></tr>
         {% endfor %}
         </tbody>
       </table></div>
     </div>
 
     <div class="card">
-      <h2 class="section-title">Itens críticos</h2>
+      <h2 class="section-title">Itens críticos da linha</h2>
       <div class="table-responsive"><table>
-        <thead><tr><th>Código</th><th>Descrição</th><th>Saldo</th><th>Atualizado</th></tr></thead>
+        <thead><tr><th>Código</th><th>Descrição</th><th>Linha</th><th>Saldo</th><th>Atualizado</th></tr></thead>
         <tbody>
         {% for item in dados.criticos %}
-          <tr><td>{{ item.codigo }}</td><td>{{ item.descricao }}</td><td>{{ fmt_num(item.quantidade_atual or 0) }}</td><td>{{ item.atualizado_em }}</td></tr>
+          <tr><td>{{ item.codigo }}</td><td>{{ item.descricao }}</td><td>{{ item.linha_erp or '-' }}</td><td>{{ fmt_num(item.quantidade_atual or 0) }}</td><td>{{ item.atualizado_em }}</td></tr>
         {% else %}
-          <tr><td colspan="4" class="empty">Nenhum item crítico.</td></tr>
+          <tr><td colspan="5" class="empty">Nenhum item crítico.</td></tr>
         {% endfor %}
         </tbody>
       </table></div>
     </div>
   </section>
+
+  <section class="card">
+    <h2 class="section-title">Lojas no período</h2>
+    <div class="table-responsive"><table>
+      <thead><tr><th>Loja</th><th>Quantidade</th><th>Custo</th></tr></thead>
+      <tbody>
+      {% for loja in dados.lojas %}
+        <tr><td>{{ loja.loja }}</td><td>{{ fmt_num(loja.quantidade or 0) }}</td><td>{{ fmt_money(loja.custo or 0) }}</td></tr>
+      {% else %}
+        <tr><td colspan="3" class="empty">Sem lojas no período.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </section>
 </main>
 
-{% with assistente_contexto='relatorios', assistente_titulo='Assistente IA do Relatório Gerencial', assistente_linha='' %}
+<style>
+.report-filter-panel{display:grid;grid-template-columns:120px 1.4fr 1.4fr auto;gap:10px;align-items:end;margin:16px 0}.report-filter-panel label{display:flex;flex-direction:column;gap:6px;font-weight:700}.quick-filter-row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px}.chip-link{border:1px solid var(--border,#ddd);border-radius:999px;padding:8px 12px;text-decoration:none;color:inherit;background:#fff}.chip-link.active{background:#f28c13;color:#fff;border-color:#f28c13}.report-cards-mobile{display:grid;gap:10px}.mini-report-card{display:flex;flex-direction:column;gap:4px;border:1px solid var(--border,#ddd);border-radius:14px;padding:12px;text-decoration:none;color:inherit;background:#fff}.mini-report-card:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,0,0,.08)}@media(max-width:760px){.report-filter-panel{grid-template-columns:1fr}.report-filter-panel button{width:100%}.relatorio-gerencial-page .table-responsive{overflow-x:auto}.relatorio-gerencial-page table{min-width:680px}.quick-filter-row{overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px}.chip-link{white-space:nowrap}}
+</style>
+
+{% with assistente_contexto='relatorios', assistente_titulo='Assistente IA do Relatório Gerencial', assistente_linha=dados.linha_base ~ (' / ' ~ dados.sublinha if dados.sublinha else '') %}
 {% include 'partials/_assistente_ia.html' %}
 {% endwith %}
 {% endblock %}

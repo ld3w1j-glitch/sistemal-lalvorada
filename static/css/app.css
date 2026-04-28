@@ -2438,3 +2438,67 @@ body {
     max-height: 44vh;
   }
 }
+
+/* Correção mobile da página de balanço */
+.balance-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.balance-list-table {
+  min-width: 820px;
+}
+.balance-list-table td,
+.balance-list-table th {
+  white-space: nowrap;
+}
+.balance-list-table td:nth-child(2) {
+  white-space: normal;
+  min-width: 140px;
+}
+@media (max-width: 760px) {
+  .balance-table-wrap { overflow: visible; }
+  .balance-list-table,
+  .balance-list-table thead,
+  .balance-list-table tbody,
+  .balance-list-table th,
+  .balance-list-table td,
+  .balance-list-table tr {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  .balance-list-table thead { display: none; }
+  .balance-list-table tr {
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: #fffdf8;
+    box-shadow: 0 6px 18px rgba(0,0,0,.04);
+  }
+  .balance-list-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--line);
+    white-space: normal;
+    word-break: break-word;
+  }
+  .balance-list-table td:last-child {
+    border-bottom: 0;
+    display: block;
+  }
+  .balance-list-table td::before {
+    content: attr(data-label);
+    font-weight: 700;
+    color: var(--muted);
+    flex: 0 0 105px;
+  }
+  .balance-list-table td:last-child::before { display: none; }
+  .balance-list-table td .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

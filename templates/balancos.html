@@ -19,7 +19,7 @@
           2. Registre os produtos pelo código ou código de barras.<br>
           3. Imprima ou exporte o relatório para comparar.<br>
           4. Confirme apenas quando tiver certeza para atualizar o estoque.<br>
-          5. Se criar uma contagem errada, o admin pode remover pela lista.
+          5. Se criar uma contagem errada, quem criou ou o admin pode remover pela lista.
         </div>
       </div>
     </div>
@@ -28,23 +28,23 @@
         <h2 class="section-title" style="margin:0;">Contagens criadas</h2>
       </div>
       {% if balances %}
-      <div class="table-wrap">
-        <table>
+      <div class="table-wrap balance-table-wrap">
+        <table class="balance-list-table">
           <thead><tr><th>ID</th><th>Título</th><th>Status</th><th>Itens</th><th>Divergências</th><th>Criado por</th><th>Criado em</th><th>Ações</th></tr></thead>
           <tbody>
           {% for b in balances %}
             <tr>
-              <td>#{{ b.id }}</td>
-              <td>{{ b.titulo }}</td>
-              <td><span class="badge">{{ b.status }}</span></td>
-              <td>{{ b.total_itens or 0 }}</td>
-              <td>{{ b.divergencias or 0 }}</td>
-              <td>{{ b.criado_por_nome or '-' }}</td>
-              <td>{{ b.criado_em }}</td>
-              <td>
+              <td data-label="ID">#{{ b.id }}</td>
+              <td data-label="Título">{{ b.titulo }}</td>
+              <td data-label="Status"><span class="badge">{{ b.status }}</span></td>
+              <td data-label="Itens">{{ b.total_itens or 0 }}</td>
+              <td data-label="Divergências">{{ b.divergencias or 0 }}</td>
+              <td data-label="Criado por">{{ b.criado_por_nome or '-' }}</td>
+              <td data-label="Criado em">{{ b.criado_em }}</td>
+              <td data-label="Ações">
                 <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
                   <a class="btn btn-secondary" href="{{ url_for('detalhe_balanco', balance_id=b.id) }}">Abrir</a>
-                  {% if user_is_admin(g.user) %}
+                  {% if user_is_admin(g.user) or b.criado_por == g.user['id'] %}
                   <a class="btn" href="{{ url_for('confirmar_remover_balanco', balance_id=b.id) }}" style="background:#dc2626; border-color:#dc2626; color:white;">Remover</a>
                   {% endif %}
                 </div>
