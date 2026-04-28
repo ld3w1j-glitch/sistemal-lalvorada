@@ -29,6 +29,10 @@
           <input type="text" id="codigo_balanco" name="codigo" placeholder="Código ou código de barras" autocomplete="off" autofocus required>
           <button type="button" class="btn-secondary scanner-icon-btn" id="btn-camera-balanco" aria-label="Ler código pela câmera" title="Ler código pela câmera">📷</button>
         </div>
+        <div class="balance-product-preview" id="balance-product-preview" hidden>
+          <span class="mini">Descrição encontrada</span>
+          <strong id="descricao_balanco">Digite ou escaneie um código</strong>
+        </div>
         <input type="text" id="quantidade_balanco" name="quantidade_contada" placeholder="Quantidade contada" required>
         <div class="balance-duplicate-help" id="balance-duplicate-help" hidden></div>
         <button type="submit">Registrar</button>
@@ -110,6 +114,8 @@
 (function(){
   const codigoInput = document.getElementById('codigo_balanco');
   const quantidadeInput = document.getElementById('quantidade_balanco');
+  const descricaoPreview = document.getElementById('balance-product-preview');
+  const descricaoTexto = document.getElementById('descricao_balanco');
   const modoInput = document.getElementById('modo_balanco');
   const form = document.getElementById('balance-count-form');
   const duplicateHelp = document.getElementById('balance-duplicate-help');
@@ -121,6 +127,9 @@
   let stream = null;
   let scanning = false;
   let liberadoSubmit = false;
+  let codigoTimer = null;
+  let ultimoCodigoConsultado = '';
+  let ultimaInfoCodigo = null;
 
   function fecharScanner() {
     scanning = false;
@@ -135,17 +144,61 @@
 
   async function checarCodigo(codigo) {
     if (!codigo) return null;
+    if (codigo === ultimoCodigoConsultado && ultimaInfoCodigo) return ultimaInfoCodigo;
     try {
       const resp = await fetch(checkUrl + '?codigo=' + encodeURIComponent(codigo), { headers: { 'Accept': 'application/json' } });
       if (!resp.ok) return null;
-      return await resp.json();
+      const info = await resp.json();
+      ultimoCodigoConsultado = codigo;
+      ultimaInfoCodigo = info;
+      return info;
     } catch (e) {
       return null;
     }
   }
 
+  function mostrarDescricao(info, codigoDigitado) {
+    if (!descricaoPreview || !descricaoTexto) return;
+    if (!codigoDigitado) {
+      descricaoPreview.hidden = true;
+      descricaoTexto.textContent = '';
+      return;
+    }
+    descricaoPreview.hidden = false;
+    if (!info) {
+      descricaoPreview.classList.add('not-found');
+      descricaoTexto.textContent = 'Consultando código...';
+      return;
+    }
+    if (info.found) {
+      descricaoPreview.classList.remove('not-found');
+      descricaoTexto.textContent = (info.codigo || codigoDigitado) + ' - ' + (info.descricao || 'Sem descrição cadastrada');
+    } else {
+      descricaoPreview.classList.add('not-found');
+      descricaoTexto.textContent = 'Item não encontrado no estoque';
+    }
+  }
+
+  async function carregarDescricaoDoCodigo() {
+    const codigo = codigoInput ? codigoInput.value.trim() : '';
+    if (!codigo) {
+      mostrarDescricao(null, '');
+      return null;
+    }
+    mostrarDescricao(null, codigo);
+    const info = await checarCodigo(codigo);
+    mostrarDescricao(info, codigo);
+    return info;
+  }
+
+  function agendarDescricao() {
+    clearTimeout(codigoTimer);
+    codigoTimer = setTimeout(carregarDescricaoDoCodigo, 350);
+  }
+
   async function tratarCodigoRepetido(codigo) {
     const info = await checarCodigo(codigo);
+    mostrarDescricao(info, codigo);
     if (!info || !info.exists) {
       if (duplicateHelp) duplicateHelp.hidden = true;
       if (modoInput) modoInput.value = 'substituir';
@@ -190,9 +243,12 @@
           if (codes.length) {
             const valor = codes[0].rawValue || '';
             codigoInput.value = valor;
+            ultimoCodigoConsultado = '';
+            ultimaInfoCodigo = null;
             status.textContent = 'Código lido: ' + valor;
             if (navigator.vibrate) navigator.vibrate(80);
             fecharScanner();
+            await carregarDescricaoDoCodigo();
             await tratarCodigoRepetido(valor);
             if (quantidadeInput) quantidadeInput.focus();
             return;
@@ -218,6 +274,16 @@
     });
   }
 
+  if (codigoInput) {
+    codigoInput.addEventListener('input', function(){
+      ultimoCodigoConsultado = '';
+      ultimaInfoCodigo = null;
+      agendarDescricao();
+    });
+    codigoInput.addEventListener('change', carregarDescricaoDoCodigo);
+    codigoInput.addEventListener('blur', carregarDescricaoDoCodigo);
+  }
+
   if (btnCamera) btnCamera.addEventListener('click', abrirScanner);
   document.querySelectorAll('[data-scanner-close="balanco"]').forEach(btn => btn.addEventListener('click', fecharScanner));
 })();
@@ -232,6 +298,25 @@
 }
 .row-positive td { background: rgba(63, 126, 51, .08); }
 .row-negative td { background: rgba(180, 40, 40, .08); }
+.balance-product-preview {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(42, 95, 48, .25);
+  border-radius: 12px;
+  background: rgba(42, 95, 48, .08);
+  color: #203b22;
+}
+.balance-product-preview strong {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.balance-product-preview.not-found {
+  border-color: rgba(180, 40, 40, .28);
+  background: rgba(180, 40, 40, .08);
+  color: #742424;
+}
 .balance-duplicate-help {
   width: 100%;
   padding: 10px 12px;
