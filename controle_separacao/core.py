@@ -412,6 +412,7 @@ def ensure_schema_updates(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "users", "permission_level", "permission_level TEXT NOT NULL DEFAULT 'comum'")
     ensure_column(conn, "users", "access_rules", "access_rules TEXT NOT NULL DEFAULT ''")
     ensure_column(conn, "users", "store_id", "store_id INTEGER")
+    ensure_column(conn, "users", "foto_perfil", "foto_perfil TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_users_store_id ON users(store_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_separations_lote_codigo ON separations(lote_codigo)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_items_codigo_barras ON stock_items(codigo_barras)")
@@ -1362,6 +1363,30 @@ def tratar_erro_geral(exc: Exception):
 @login_required
 def minha_conta() -> str | Response:
     if request.method == "POST":
+        acao = request.form.get("acao", "senha")
+
+        if acao == "foto":
+            arquivo = request.files.get("foto")
+            if arquivo is None or not arquivo.filename:
+                flash("Escolha uma foto para atualizar o perfil.", "error")
+                return redirect(url_for("minha_conta"))
+            nome = secure_filename(arquivo.filename)
+            ext = os.path.splitext(nome)[1].lower()
+            if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+                flash("Envie uma imagem PNG, JPG, JPEG ou WEBP.", "error")
+                return redirect(url_for("minha_conta"))
+            folder = os.path.join(BASE_DIR, "static", "uploads", "perfis")
+            os.makedirs(folder, exist_ok=True)
+            final_name = f"user_{g.user['id']}_{int(datetime.now().timestamp())}{ext}"
+            arquivo.save(os.path.join(folder, final_name))
+            foto = f"uploads/perfis/{final_name}"
+            with closing(get_conn()) as conn:
+                conn.execute("UPDATE users SET foto_perfil = ? WHERE id = ?", (foto, g.user["id"]))
+                conn.commit()
+            registrar_auditoria("atualizar_foto_perfil", "users", str(g.user["id"]), {"foto": foto})
+            flash("Foto do perfil atualizada.", "success")
+            return redirect(url_for("minha_conta"))
+
         senha_atual = request.form.get("senha_atual", "")
         nova_senha = request.form.get("nova_senha", "")
         confirmar_senha = request.form.get("confirmar_senha", "")
@@ -1552,6 +1577,69 @@ def dashboard_stats() -> dict[str, Any]:
 
 
 
+
+def painel_gerencial_padaria_cd() -> dict[str, Any]:
+    """Resumo gerencial simplificado para o painel, focado em Padaria - Industria CD."""
+    where = """
+        WHERE ativo = 1
+          AND UPPER(COALESCE(linha_caminho_erp, linha_erp, '')) LIKE '%PADARIA%'
+          AND UPPER(COALESCE(linha_caminho_erp, linha_erp, '')) LIKE '%INDUSTRIA%'
+          AND UPPER(COALESCE(linha_caminho_erp, linha_erp, '')) LIKE '%CD%'
+    """
+    row = query_one(f"""
+        SELECT
+            COUNT(*) AS total_itens,
+            COALESCE(SUM(quantidade_atual), 0) AS quantidade_total,
+            COALESCE(SUM(COALESCE(quantidade_atual, 0) * COALESCE(custo_unitario, 0)), 0) AS valor_estoque,
+            SUM(CASE WHEN COALESCE(quantidade_atual, 0) <= 0 THEN 1 ELSE 0 END) AS itens_zerados,
+            SUM(CASE WHEN COALESCE(quantidade_atual, 0) > 0 AND COALESCE(quantidade_atual, 0) <= 10 THEN 1 ELSE 0 END) AS itens_abaixo
+        FROM stock_items
+        {where}
+    """)
+    linhas = query_all(f"""
+        SELECT COALESCE(linha_erp, 'Sem linha') AS linha,
+               COUNT(*) AS total_itens,
+               SUM(CASE WHEN COALESCE(quantidade_atual, 0) <= 0 THEN 1 ELSE 0 END) AS zerados,
+               SUM(CASE WHEN COALESCE(quantidade_atual, 0) > 0 AND COALESCE(quantidade_atual, 0) <= 10 THEN 1 ELSE 0 END) AS abaixo
+        FROM stock_items
+        {where}
+        GROUP BY COALESCE(linha_erp, 'Sem linha')
+        ORDER BY total_itens DESC
+        LIMIT 8
+    """)
+    return {
+        "total_itens": int(row["total_itens"] if row else 0),
+        "quantidade_total": float(row["quantidade_total"] if row else 0),
+        "valor_estoque": float(row["valor_estoque"] if row else 0),
+        "itens_zerados": int(row["itens_zerados"] if row else 0),
+        "itens_abaixo": int(row["itens_abaixo"] if row else 0),
+        "linhas": linhas,
+    }
+
+
+def painel_chat_resumo() -> dict[str, Any]:
+    """Mostra mensagens recentes dos chats em que o usuário participa."""
+    uid = int(g.user["id"])
+    pendentes = query_one("""
+        SELECT COUNT(*) AS c
+        FROM chat_messages m
+        JOIN chat_group_members gm ON gm.group_id = m.group_id AND gm.user_id = ?
+        JOIN chat_groups cg ON cg.id = m.group_id AND cg.ativo = 1
+        WHERE COALESCE(m.user_id, 0) <> ?
+          AND m.criado_em >= datetime('now', '-2 days')
+    """, (uid, uid))
+    ultimas = query_all("""
+        SELECT m.id, m.mensagem, m.criado_em, cg.nome AS grupo_nome, u.nome AS usuario_nome
+        FROM chat_messages m
+        JOIN chat_group_members gm ON gm.group_id = m.group_id AND gm.user_id = ?
+        JOIN chat_groups cg ON cg.id = m.group_id AND cg.ativo = 1
+        LEFT JOIN users u ON u.id = m.user_id
+        WHERE COALESCE(m.user_id, 0) <> ?
+        ORDER BY m.id DESC
+        LIMIT 3
+    """, (uid, uid))
+    return {"novas": int(pendentes["c"] if pendentes else 0), "ultimas": ultimas}
+
 @app.get("/")
 @login_required
 @module_required("painel")
@@ -1570,6 +1658,8 @@ def dashboard() -> str:
         lojas_ativas=lojas_ativas,
         usuarios_ativos=usuarios_ativos,
         finalizadas_hoje=finalizadas_hoje,
+        gerencial_padaria=painel_gerencial_padaria_cd(),
+        chat_resumo=painel_chat_resumo(),
     )
 
 

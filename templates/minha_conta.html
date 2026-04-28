@@ -1,20 +1,43 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="main">
-  <div class="wrap" style="max-width:720px;">
-    <div class="card">
+  <div class="wrap" style="max-width:820px;">
+    <div class="card profile-page-card">
       <h1 class="section-title">Minha conta</h1>
-      <p class="muted">Aqui o usuário pode trocar a própria senha quando quiser.</p>
+      <p class="muted">Gerencie seu perfil, foto e senha.</p>
 
-      <div style="display:grid; gap:8px; margin-bottom:16px;">
-        <div><strong>Nome:</strong> {{ g.user.nome }}</div>
-        <div><strong>Login:</strong> {{ g.user.username }}</div>
-        <div><strong>Função:</strong> {{ role_label(g.user.role) }}</div>
-        <div><strong>Permissão:</strong> {{ permission_level_label(g.user.permission_level if 'permission_level' in g.user.keys() else '', g.user.role) }}</div>
-        <div><strong>Acessos:</strong> {{ access_labels_for_user(g.user)|join(', ') }}</div>
+      <div class="profile-summary">
+        <div class="profile-avatar big">
+          {% if ('foto_perfil' in g.user.keys()) and g.user['foto_perfil'] %}
+            <img src="{{ url_for('static', filename=g.user['foto_perfil']) }}" alt="Foto de {{ g.user.nome }}">
+          {% else %}
+            <span>{{ (g.user.nome or g.user.username)[:1]|upper }}</span>
+          {% endif %}
+        </div>
+        <div>
+          <div><strong>Nome:</strong> {{ g.user.nome }}</div>
+          <div><strong>Login:</strong> {{ g.user.username }}</div>
+          <div><strong>Função:</strong> {{ role_label(g.user.role) }}</div>
+          <div><strong>Permissão:</strong> {{ permission_level_label(g.user.permission_level if 'permission_level' in g.user.keys() else '', g.user.role) }}</div>
+          <div><strong>Acessos:</strong> {{ access_labels_for_user(g.user)|join(', ') }}</div>
+        </div>
       </div>
 
+      <form method="post" enctype="multipart/form-data" class="profile-photo-form">
+        <input type="hidden" name="acao" value="foto">
+        <label class="field-label">Foto do perfil</label>
+        <div class="profile-photo-actions">
+          <input type="file" name="foto" accept="image/*" required>
+          <input type="file" name="foto" accept="image/*" capture="user" class="mobile-camera-input">
+          <button type="submit" class="btn">Atualizar foto</button>
+        </div>
+        <small class="muted">No celular, você pode tirar a foto na hora pela câmera.</small>
+      </form>
+
+      <hr>
+
       <form method="post">
+        <input type="hidden" name="acao" value="senha">
         <input type="password" name="senha_atual" placeholder="Senha atual" required>
         <input type="password" name="nova_senha" placeholder="Nova senha" required>
         <input type="password" name="confirmar_senha" placeholder="Confirmar nova senha" required>

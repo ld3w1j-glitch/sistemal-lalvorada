@@ -2,81 +2,114 @@
 {% block content %}
 <section class="hero">
   <div class="wrap hero-grid">
-    <div class="card">
-      <h1 class="hero-title">Painel de controle</h1>
-      <p class="hero-text">Resumo rápido da operação de separação, estoque e histórico.</p>
-      <div class="stats">
-        <div class="stat"><span>Total de separações</span><strong>{{ stats.total }}</strong></div>
-        <div class="stat"><span>Abertas</span><strong>{{ stats.abertas }}</strong></div>
-        <div class="stat"><span>Aguardando</span><strong>{{ stats.aguardando }}</strong></div>
-        <div class="stat"><span>Finalizadas</span><strong>{{ stats.finalizadas }}</strong></div>
+    <div class="card dashboard-profile-card">
+      <div class="dashboard-profile-head">
+        <div class="profile-avatar big">
+          {% if ('foto_perfil' in g.user.keys()) and g.user['foto_perfil'] %}
+            <img src="{{ url_for('static', filename=g.user['foto_perfil']) }}" alt="Foto de {{ g.user.nome }}">
+          {% else %}
+            <span>{{ (g.user.nome or g.user.username)[:1]|upper }}</span>
+          {% endif %}
+        </div>
+        <div>
+          <h1 class="hero-title">Painel de controle</h1>
+          <p class="hero-text">Olá, <strong>{{ g.user.nome }}</strong>. Resumo gerencial da operação.</p>
+          <p class="muted">{{ role_label(g.user.role) }} • {{ permission_level_label(g.user.permission_level if 'permission_level' in g.user.keys() else '', g.user.role) }}</p>
+        </div>
       </div>
     </div>
-    <div class="card">
-      <h2 class="section-title">Resumo do dia</h2>
-      <p class="muted">Lojas ativas: <strong>{{ lojas_ativas }}</strong></p>
-      <p class="muted">Usuários ativos: <strong>{{ usuarios_ativos }}</strong></p>
-      <p class="muted">Finalizadas hoje: <strong>{{ finalizadas_hoje }}</strong></p>
-      <p class="muted">Itens no estoque: <strong>{{ stats.itens_estoque }}</strong></p>
-      <p class="muted">Quantidade em estoque: <strong>{{ fmt_num(stats.qtd_estoque) }}</strong></p>
-    </div>
-  </div>
-</section>
-<section class="main">
-  <div class="wrap grid-2">
-    <div class="card">
+
+    <div class="card dashboard-chat-card {% if chat_resumo.novas > 0 %}has-new{% endif %}">
       <div class="toolbar">
-        <h2 class="section-title">Últimas separações</h2>
-        <a class="btn btn-secondary" href="{{ url_for('relatorios') if g.user['role'] in ['admin', 'balanco'] else url_for('listar_separacoes') }}">Ver todas</a>
+        <h2 class="section-title">Chat interno</h2>
+        {% if chat_resumo.novas > 0 %}<span class="badge alert">{{ chat_resumo.novas }} nova(s)</span>{% endif %}
       </div>
-      <div class="table-responsive">
-        <table>
-          <thead><tr><th>Lote</th><th>Data</th><th>Responsável</th><th>Status</th><th>Ação</th></tr></thead>
-          <tbody>
-            {% for lote in ultimos_lotes %}
-            <tr>
-              <td>{{ lote.lote_nome }}</td>
-              <td>{{ lote.data_referencia }}</td>
-              <td>{{ lote.responsavel_nome or '-' }}</td>
-              <td><span class="{{ status_class(lote.status_resumo) }}">{{ lote.status_resumo }}</span></td>
-              <td>
-                {% if g.user['role'] in ['admin', 'balanco'] %}
-                <a class="btn btn-secondary" href="{{ url_for('detalhe_historico_lote', lote_codigo=lote.operacao_chave) }}">Abrir dia</a>
-                {% else %}
-                <a class="btn btn-secondary" href="{{ url_for('listar_separacoes') }}">Abrir</a>
-                {% endif %}
-              </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="5" class="empty">Nenhuma separação encontrada.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    <div class="card">
-      <h2 class="section-title">Atalhos</h2>
-      <div class="inline">
-        {% if g.user['role'] == 'admin' %}
-        <a class="btn" href="{{ url_for('nova_separacao') }}">Criar separações</a>
-        <a class="btn btn-secondary" href="{{ url_for('listar_lotes') }}">Lotes</a>
-        {% endif %}
-        {% if g.user['role'] in ['admin', 'balanco'] %}
-        <a class="btn btn-secondary" href="{{ url_for('estoque') }}">Estoque</a>
-        <a class="btn btn-secondary" href="{{ url_for('relatorios') }}">Relatórios</a>
-        {% else %}
-        <a class="btn btn-secondary" href="{{ url_for('listar_separacoes') }}">Minhas separações</a>
-        {% endif %}
-      </div>
-      <p class="muted">Controle de estoque vinculado: <strong>{{ 'Ligado' if stats.vincular_estoque else 'Desligado' }}</strong></p>
-      <p class="muted">Uso de conferente: <strong>{{ 'Ligado' if stats.usar_conferente else 'Desligado' }}</strong></p>
+      {% if chat_resumo.ultimas %}
+        <div class="dashboard-chat-list">
+          {% for msg in chat_resumo.ultimas %}
+            <a href="{{ url_for('comunicacao') }}" class="dashboard-chat-item">
+              <strong>{{ msg.grupo_nome }}</strong>
+              <span>{{ msg.usuario_nome or 'Usuário' }}: {{ (msg.mensagem or 'Arquivo enviado')[:70] }}</span>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">Nenhuma mensagem nova no momento.</p>
+      {% endif %}
+      <a class="btn btn-secondary" href="{{ url_for('comunicacao') }}">Abrir chat</a>
     </div>
   </div>
 </section>
 
-{% if user_is_admin(g.user) %}
-{% with assistente_contexto='painel', assistente_titulo='Assistente IA do Painel', assistente_linha='' %}
-{% include 'partials/_assistente_ia.html' %}
-{% endwith %}
-{% endif %}
+<section class="main">
+  <div class="wrap page-stack">
+    <div class="card">
+      <div class="toolbar">
+        <div>
+          <h2 class="section-title">Padaria - Industria CD</h2>
+          <p class="muted">Resumo parecido com o relatório gerencial, sem focar em lotes.</p>
+        </div>
+        <a class="btn" href="{{ url_for('relatorio_gerencial') if user_has_access(g.user, 'relatorios') else url_for('dashboard') }}">Relatório gerencial</a>
+      </div>
+      <div class="stats manager-stats">
+        <div class="stat"><span>Valor em estoque</span><strong>{{ fmt_money(gerencial_padaria.valor_estoque) }}</strong></div>
+        <div class="stat"><span>Itens existentes</span><strong>{{ gerencial_padaria.total_itens }}</strong></div>
+        <div class="stat"><span>Abaixo do estoque</span><strong>{{ gerencial_padaria.itens_abaixo }}</strong></div>
+        <div class="stat"><span>Itens zerados</span><strong>{{ gerencial_padaria.itens_zerados }}</strong></div>
+        <div class="stat"><span>Quantidade total</span><strong>{{ fmt_num(gerencial_padaria.quantidade_total) }}</strong></div>
+      </div>
+      {% if gerencial_padaria.linhas %}
+      <div class="manager-lines">
+        {% for linha in gerencial_padaria.linhas %}
+          <div class="mini-card manager-line-card">
+            <strong>{{ linha.linha }}</strong>
+            <span>{{ linha.total_itens }} itens • {{ linha.abaixo }} baixo • {{ linha.zerados }} zerados</span>
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="toolbar">
+          <h2 class="section-title">Últimas separações</h2>
+          <a class="btn btn-secondary" href="{{ url_for('relatorios') if g.user['role'] in ['admin', 'balanco'] else url_for('listar_separacoes') }}">Ver todas</a>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Lote</th><th>Data</th><th>Responsável</th><th>Status</th><th>Ação</th></tr></thead>
+            <tbody>
+              {% for lote in ultimos_lotes %}
+              <tr>
+                <td>{{ lote.lote_nome }}</td>
+                <td>{{ lote.data_referencia }}</td>
+                <td>{{ lote.responsavel_nome or '-' }}</td>
+                <td><span class="{{ status_class(lote.status_resumo) }}">{{ lote.status_resumo }}</span></td>
+                <td>
+                  {% if g.user['role'] in ['admin', 'balanco'] %}
+                  <a class="btn btn-secondary" href="{{ url_for('detalhe_historico_lote', lote_codigo=lote.operacao_chave) }}">Abrir dia</a>
+                  {% else %}
+                  <a class="btn btn-secondary" href="{{ url_for('listar_separacoes') }}">Abrir</a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="empty">Nenhuma separação encontrada.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2 class="section-title">Resumo do sistema</h2>
+        <p class="muted">Lojas ativas: <strong>{{ lojas_ativas }}</strong></p>
+        <p class="muted">Usuários ativos: <strong>{{ usuarios_ativos }}</strong></p>
+        <p class="muted">Finalizadas hoje: <strong>{{ finalizadas_hoje }}</strong></p>
+        <p class="muted">Itens no estoque geral: <strong>{{ stats.itens_estoque }}</strong></p>
+        <p class="muted">Quantidade geral em estoque: <strong>{{ fmt_num(stats.qtd_estoque) }}</strong></p>
+      </div>
+    </div>
+  </div>
+</section>
 {% endblock %}

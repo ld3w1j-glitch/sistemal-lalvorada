@@ -9,7 +9,7 @@
       <button type="button" id="floating-ai-close">×</button>
     </div>
     <div class="floating-ai-body">
-      <div class="floating-ai-suggestions" id="floating-ai-suggestions"></div>
+      <div class="floating-ai-help">Converse normalmente. Ex.: “tenho um problema na loja”, “consultar produto 123” ou “calcule 10+20”.</div>
       <div class="floating-ai-chat" id="floating-ai-chat">
         <div class="floating-ai-msg bot">Bom dia! Pode conversar comigo normalmente. Eu também calculo e consulto o sistema.</div>
       </div>
@@ -41,7 +41,7 @@
   const photoInput = document.getElementById('floating-ai-photo-input');
   const attachRow = document.getElementById('floating-ai-attach-row');
   const chat = document.getElementById('floating-ai-chat');
-  const suggestions = document.getElementById('floating-ai-suggestions');
+  const suggestions = null;
 
   const endpointToContext = {
     dashboard: 'painel', estoque: 'estoque', listar_lotes: 'lotes',
@@ -68,23 +68,7 @@
     if (open) input.focus();
   }
 
-  async function loadSuggestions(){
-    try {
-      const resp = await fetch('{{ url_for('api_mcp_contexto') }}?contexto=' + encodeURIComponent(ctx));
-      const data = await resp.json();
-      const itens = (data.sugestoes || ['calcule 10+20', 'status do sistema', 'estoque baixo']).slice(0, 4);
-      suggestions.innerHTML = itens.map(item => '<button type="button">' + escapeHtml(item) + '</button>').join('');
-      suggestions.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
-          input.value = btn.textContent;
-          ask();
-        });
-      });
-    } catch(err) {
-      suggestions.innerHTML = '';
-    }
-  }
-
+  async function loadSuggestions(){ return; }
   function renderExtra(data) {
     const table = data.table || {};
     const rows = table.rows || [];
