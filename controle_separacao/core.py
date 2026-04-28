@@ -6651,7 +6651,7 @@ def exportar_balanco_pdf(balance_id: int) -> Response:
     doc = SimpleDocTemplate(buf, pagesize=landscape(A4), rightMargin=.8*cm, leftMargin=.8*cm, topMargin=.8*cm, bottomMargin=.8*cm)
     styles = getSampleStyleSheet()
     story = [Paragraph(f"Balanço de estoque #{balance_id}", styles["Title"]), Paragraph(f"{balanco['titulo']} • Status: {balanco['status']} • Criado em: {balanco['criado_em']}", styles["Normal"]), Spacer(1,.2*cm)]
-    cards = [["Indicador", "Valor"], ["Itens contados", str(resumo["total"])], ["Divergências", str(resumo["divergentes"])], ["Sobras", str(resumo["sobras"])], ["Faltas", str(resumo["faltas"])], ["Valor diferença", fmt_brl(resumo["valor_delta"])]]
+    cards = [["Indicador", "Valor"], ["Itens contados", str(resumo["total"])], ["Divergências", str(resumo["divergentes"])], ["Sobras", str(resumo["sobras"])], ["Faltas", str(resumo["faltas"])], ["Valor diferença", fmt_money(resumo["valor_delta"])]]
     t = Table(cards, repeatRows=1)
     t.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#3f7e33")),("TEXTCOLOR",(0,0),(-1,0),colors.white),("GRID",(0,0),(-1,-1),.25,colors.grey),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold")]))
     story.append(t); story.append(Spacer(1,.25*cm))
