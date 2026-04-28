@@ -42,11 +42,13 @@
 
   function closeMenu() {
     topbar.classList.remove('is-open');
+    document.body.classList.remove('menu-open');
     toggle.setAttribute('aria-expanded', 'false');
   }
 
   toggle.addEventListener('click', function(){
     const open = topbar.classList.toggle('is-open');
+    document.body.classList.toggle('menu-open', open);
     toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
   });
 

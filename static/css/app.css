@@ -2209,3 +2209,41 @@ body {
     max-width: 52px;
   }
 }
+
+/* Ajuste mobile: menu grande com rolagem própria no celular */
+@media (max-width: 760px) {
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+  }
+
+  .topbar.is-open {
+    max-height: 100vh;
+    overflow: hidden;
+  }
+
+  .topbar.is-open .wrap {
+    max-height: 100vh;
+    overflow: hidden;
+  }
+
+  .topbar .nav {
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px 2px 22px;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .topbar .nav a {
+    min-height: 40px;
+    padding: 9px 14px;
+  }
+
+  body.menu-open {
+    overflow: hidden;
+  }
+}
