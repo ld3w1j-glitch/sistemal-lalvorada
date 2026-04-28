@@ -33,6 +33,7 @@ from flask import (
 )
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -147,6 +148,7 @@ ACCESS_OPTIONS: list[tuple[str, str]] = [
     ("lotes", "Lotes"),
     ("configuracoes", "Configurações"),
     ("mcp_teste", "MCP/IA"),
+    ("comunicacao", "Chat/Tarefas"),
     ("codigo_fonte", "Código fonte"),
     ("auditoria", "Auditoria"),
 ]
@@ -165,13 +167,13 @@ ROLE_LABELS = {
 }
 DEFAULT_ACCESS_BY_ROLE: dict[str, set[str]] = {
     "admin": set(ACCESS_KEYS),
-    "gerente": {"painel", "separacoes", "estoque", "balanco", "relatorios", "lojas", "lotes", "mcp_teste"},
-    "estoque": {"painel", "estoque", "recebimentos", "balanco", "relatorios", "lotes", "mcp_teste"},
-    "separador": {"painel", "separacoes", "pedidos", "lotes"},
-    "conferente": {"painel", "recebimentos", "separacoes", "pedidos", "lotes"},
-    "balanco": {"painel", "estoque", "balanco", "relatorios", "mcp_teste"},
+    "gerente": {"painel", "separacoes", "estoque", "balanco", "relatorios", "lojas", "lotes", "mcp_teste", "comunicacao"},
+    "estoque": {"painel", "estoque", "recebimentos", "balanco", "relatorios", "lotes", "mcp_teste", "comunicacao"},
+    "separador": {"painel", "separacoes", "pedidos", "lotes", "comunicacao"},
+    "conferente": {"painel", "recebimentos", "separacoes", "pedidos", "lotes", "comunicacao"},
+    "balanco": {"painel", "estoque", "balanco", "relatorios", "mcp_teste", "comunicacao"},
     "desenvolvedor": {"painel", "mcp_teste", "codigo_fonte"},
-    "visualizador": {"painel", "relatorios", "mcp_teste"},
+    "visualizador": {"painel", "relatorios", "mcp_teste", "comunicacao"},
 }
 MODULE_ENDPOINTS = {
     "painel": "dashboard",
@@ -186,6 +188,7 @@ MODULE_ENDPOINTS = {
     "lotes": "listar_lotes",
     "configuracoes": "configuracoes",
     "mcp_teste": "mcp_teste",
+    "comunicacao": "comunicacao",
     "codigo_fonte": "admin_codigo_fonte",
     "auditoria": "auditoria",
 }
@@ -412,7 +415,73 @@ def ensure_schema_updates(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_items_codigo_barras ON stock_items(codigo_barras)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_items_linha_erp ON stock_items(linha_erp)")
     conn.executescript("""
-    CREATE TABLE IF NOT EXISTS erp_stock_imports (
+    
+CREATE TABLE IF NOT EXISTS chat_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    criado_por INTEGER,
+    criado_em TEXT NOT NULL,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (criado_por) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS chat_group_members (
+    group_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    criado_em TEXT NOT NULL,
+    PRIMARY KEY (group_id, user_id),
+    FOREIGN KEY (group_id) REFERENCES chat_groups (id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    user_id INTEGER,
+    mensagem TEXT,
+    arquivo_nome TEXT,
+    arquivo_path TEXT,
+    arquivo_status TEXT NOT NULL DEFAULT 'sem_arquivo',
+    recebido_por INTEGER,
+    recebido_em TEXT,
+    expira_em TEXT,
+    criado_em TEXT NOT NULL,
+    FOREIGN KEY (group_id) REFERENCES chat_groups (id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users (id),
+    FOREIGN KEY (recebido_por) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS team_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    titulo TEXT NOT NULL,
+    descricao TEXT,
+    responsavel_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'ABERTA',
+    prazo TEXT,
+    criado_por INTEGER,
+    criado_em TEXT NOT NULL,
+    finalizado_em TEXT,
+    FOREIGN KEY (responsavel_id) REFERENCES users (id),
+    FOREIGN KEY (criado_por) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS scheduled_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loja_id INTEGER,
+    titulo TEXT NOT NULL,
+    itens_texto TEXT NOT NULL,
+    agendado_para TEXT,
+    status TEXT NOT NULL DEFAULT 'AGENDADO',
+    criado_por INTEGER,
+    criado_em TEXT NOT NULL,
+    enviado_por INTEGER,
+    enviado_em TEXT,
+    FOREIGN KEY (loja_id) REFERENCES stores (id),
+    FOREIGN KEY (criado_por) REFERENCES users (id),
+    FOREIGN KEY (enviado_por) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS erp_stock_imports (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         filename TEXT NOT NULL,
         loja TEXT,
@@ -2847,6 +2916,7 @@ def _mcp_contexto_permitido(contexto: str) -> bool:
         "lotes": "lotes",
         "relatorios": "relatorios",
         "mcp_teste": "mcp_teste",
+    "comunicacao": "comunicacao",
     }
     modulo = mapa.get(contexto, "mcp_teste")
     if g.user is None:
@@ -6665,6 +6735,252 @@ def exportar_balanco_pdf(balance_id: int) -> Response:
     return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=f"balanco_{balance_id}.pdf")
 
 
+
+
+# =========================
+# Comunicação: chat, tarefas e pedidos agendados
+# =========================
+
+def _upload_chat_dir() -> str:
+    folder = os.path.join(BASE_DIR, "static", "uploads", "chat_temp")
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def _is_group_member(conn: sqlite3.Connection, group_id: int, user_id: int) -> bool:
+    if user_is_admin(g.user):
+        return True
+    row = conn.execute("SELECT 1 FROM chat_group_members WHERE group_id = ? AND user_id = ?", (group_id, user_id)).fetchone()
+    return row is not None
+
+
+@app.get("/comunicacao")
+@login_required
+@module_required("comunicacao")
+def comunicacao() -> str:
+    group_id = request.args.get("group_id", type=int)
+    with closing(get_conn()) as conn:
+        usuarios = conn.execute("SELECT id, nome, role FROM users WHERE ativo = 1 ORDER BY nome").fetchall()
+        lojas = conn.execute("SELECT id, nome FROM stores WHERE ativo = 1 ORDER BY nome").fetchall()
+        if user_is_admin(g.user):
+            grupos = conn.execute("""
+                SELECT g.*, COUNT(m.user_id) AS total_membros
+                FROM chat_groups g
+                LEFT JOIN chat_group_members m ON m.group_id = g.id
+                WHERE g.ativo = 1
+                GROUP BY g.id
+                ORDER BY g.criado_em DESC
+            """).fetchall()
+        else:
+            grupos = conn.execute("""
+                SELECT g.*, COUNT(m2.user_id) AS total_membros
+                FROM chat_groups g
+                JOIN chat_group_members m ON m.group_id = g.id AND m.user_id = ?
+                LEFT JOIN chat_group_members m2 ON m2.group_id = g.id
+                WHERE g.ativo = 1
+                GROUP BY g.id
+                ORDER BY g.criado_em DESC
+            """, (g.user["id"],)).fetchall()
+        grupo_atual = None
+        mensagens = []
+        if group_id:
+            if _is_group_member(conn, group_id, g.user["id"]):
+                grupo_atual = conn.execute("SELECT * FROM chat_groups WHERE id = ? AND ativo = 1", (group_id,)).fetchone()
+                mensagens = conn.execute("""
+                    SELECT msg.*, u.nome AS usuario_nome
+                    FROM chat_messages msg
+                    LEFT JOIN users u ON u.id = msg.user_id
+                    WHERE msg.group_id = ?
+                    ORDER BY msg.criado_em ASC, msg.id ASC
+                """, (group_id,)).fetchall()
+            else:
+                flash("Você não participa desse grupo.", "error")
+        tarefas = conn.execute("""
+            SELECT t.*, u.nome AS responsavel_nome
+            FROM team_tasks t
+            LEFT JOIN users u ON u.id = t.responsavel_id
+            ORDER BY CASE t.status WHEN 'ABERTA' THEN 0 ELSE 1 END, t.prazo IS NULL, t.prazo, t.id DESC
+            LIMIT 80
+        """).fetchall()
+        pedidos_agendados = conn.execute("""
+            SELECT o.*, s.nome AS loja_nome
+            FROM scheduled_orders o
+            LEFT JOIN stores s ON s.id = o.loja_id
+            ORDER BY CASE o.status WHEN 'AGENDADO' THEN 0 ELSE 1 END, o.agendado_para IS NULL, o.agendado_para, o.id DESC
+            LIMIT 80
+        """).fetchall()
+    return render_template(
+        "comunicacao.html",
+        title="Chat/Tarefas",
+        usuarios=usuarios,
+        lojas=lojas,
+        grupos=grupos,
+        grupo_atual=grupo_atual,
+        mensagens=mensagens,
+        tarefas=tarefas,
+        pedidos_agendados=pedidos_agendados,
+        pode_criar_pedidos=user_has_access(g.user, "pedidos"),
+    )
+
+
+@app.post("/comunicacao/grupos/criar")
+@login_required
+@module_required("comunicacao")
+def criar_grupo_chat() -> Response:
+    if not user_is_admin(g.user):
+        return forbidden_redirect("Somente o admin pode criar grupos.")
+    nome = request.form.get("nome", "").strip()
+    participantes = [int(x) for x in request.form.getlist("participantes") if str(x).isdigit()]
+    if not nome:
+        flash("Informe o nome do grupo.", "error")
+        return redirect(url_for("comunicacao"))
+    if g.user["id"] not in participantes:
+        participantes.append(g.user["id"])
+    with closing(get_conn()) as conn:
+        cur = conn.execute("INSERT INTO chat_groups (nome, criado_por, criado_em) VALUES (?, ?, ?)", (nome, g.user["id"], agora_iso()))
+        gid = cur.lastrowid
+        conn.executemany("INSERT OR IGNORE INTO chat_group_members (group_id, user_id, criado_em) VALUES (?, ?, ?)", [(gid, uid, agora_iso()) for uid in participantes])
+        conn.commit()
+    registrar_auditoria("criar_grupo_chat", "chat_groups", str(gid), {"nome": nome, "participantes": participantes})
+    flash("Grupo criado.", "success")
+    return redirect(url_for("comunicacao", group_id=gid))
+
+
+@app.post("/comunicacao/grupos/<int:group_id>/mensagem")
+@login_required
+@module_required("comunicacao")
+def enviar_mensagem_chat(group_id: int) -> Response:
+    mensagem = request.form.get("mensagem", "").strip()
+    arquivo = request.files.get("arquivo")
+    arquivo_nome = arquivo_path = None
+    status = "sem_arquivo"
+    if arquivo and arquivo.filename:
+        safe = secure_filename(arquivo.filename)
+        arquivo_nome = safe or "arquivo"
+        unique = f"{uuid.uuid4().hex}_{arquivo_nome}"
+        full = os.path.join(_upload_chat_dir(), unique)
+        arquivo.save(full)
+        arquivo_path = full
+        status = "pendente"
+    if not mensagem and not arquivo_nome:
+        flash("Digite uma mensagem ou envie um arquivo.", "error")
+        return redirect(url_for("comunicacao", group_id=group_id))
+    with closing(get_conn()) as conn:
+        if not _is_group_member(conn, group_id, g.user["id"]):
+            flash("Você não participa desse grupo.", "error")
+            return redirect(url_for("comunicacao"))
+        cur = conn.execute("""
+            INSERT INTO chat_messages (group_id, user_id, mensagem, arquivo_nome, arquivo_path, arquivo_status, expira_em, criado_em)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+7 days'), ?)
+        """, (group_id, g.user["id"], mensagem, arquivo_nome, arquivo_path, status, agora_iso()))
+        mid = cur.lastrowid
+        conn.commit()
+    registrar_auditoria("enviar_mensagem_chat", "chat_messages", str(mid), {"group_id": group_id, "tem_arquivo": bool(arquivo_nome)})
+    return redirect(url_for("comunicacao", group_id=group_id))
+
+
+@app.get("/comunicacao/arquivo/<int:message_id>")
+@login_required
+@module_required("comunicacao")
+def baixar_arquivo_chat(message_id: int) -> Response:
+    with closing(get_conn()) as conn:
+        msg = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (message_id,)).fetchone()
+        if msg is None or not _is_group_member(conn, int(msg["group_id"]), g.user["id"]):
+            flash("Arquivo não encontrado.", "error")
+            return redirect(url_for("comunicacao"))
+    if not msg["arquivo_path"] or msg["arquivo_status"] != "pendente" or not os.path.exists(msg["arquivo_path"]):
+        flash("Arquivo expirado ou já confirmado.", "error")
+        return redirect(url_for("comunicacao", group_id=msg["group_id"]))
+    return send_file(msg["arquivo_path"], as_attachment=True, download_name=msg["arquivo_nome"])
+
+
+@app.post("/comunicacao/arquivo/<int:message_id>/confirmar")
+@login_required
+@module_required("comunicacao")
+def confirmar_arquivo_chat(message_id: int) -> Response:
+    with closing(get_conn()) as conn:
+        msg = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (message_id,)).fetchone()
+        if msg is None or not _is_group_member(conn, int(msg["group_id"]), g.user["id"]):
+            flash("Arquivo não encontrado.", "error")
+            return redirect(url_for("comunicacao"))
+        if msg["arquivo_path"] and os.path.exists(msg["arquivo_path"]):
+            try:
+                os.remove(msg["arquivo_path"])
+            except OSError:
+                pass
+        conn.execute("UPDATE chat_messages SET arquivo_status = 'recebido_apagado', recebido_por = ?, recebido_em = ? WHERE id = ?", (g.user["id"], agora_iso(), message_id))
+        conn.commit()
+    registrar_auditoria("confirmar_recebimento_arquivo_chat", "chat_messages", str(message_id), {"group_id": msg["group_id"]})
+    flash("Recebimento confirmado. Arquivo temporário apagado.", "success")
+    return redirect(url_for("comunicacao", group_id=msg["group_id"]))
+
+
+@app.post("/comunicacao/tarefas/criar")
+@login_required
+@module_required("comunicacao")
+def criar_tarefa() -> Response:
+    titulo = request.form.get("titulo", "").strip()
+    descricao = request.form.get("descricao", "").strip()
+    responsavel_id = request.form.get("responsavel_id", type=int)
+    prazo = request.form.get("prazo", "").strip()
+    if not titulo:
+        flash("Informe o título da tarefa.", "error")
+        return redirect(url_for("comunicacao"))
+    with closing(get_conn()) as conn:
+        cur = conn.execute("INSERT INTO team_tasks (titulo, descricao, responsavel_id, prazo, criado_por, criado_em) VALUES (?, ?, ?, ?, ?, ?)", (titulo, descricao, responsavel_id, prazo, g.user["id"], agora_iso()))
+        tid = cur.lastrowid
+        conn.commit()
+    registrar_auditoria("criar_tarefa", "team_tasks", str(tid), {"titulo": titulo, "responsavel_id": responsavel_id})
+    flash("Tarefa criada.", "success")
+    return redirect(url_for("comunicacao"))
+
+
+@app.post("/comunicacao/tarefas/<int:task_id>/concluir")
+@login_required
+@module_required("comunicacao")
+def concluir_tarefa(task_id: int) -> Response:
+    with closing(get_conn()) as conn:
+        conn.execute("UPDATE team_tasks SET status = 'CONCLUIDA', finalizado_em = ? WHERE id = ?", (agora_iso(), task_id))
+        conn.commit()
+    registrar_auditoria("concluir_tarefa", "team_tasks", str(task_id), {})
+    flash("Tarefa concluída.", "success")
+    return redirect(url_for("comunicacao"))
+
+
+@app.post("/comunicacao/pedidos-agendados/criar")
+@login_required
+@module_required("comunicacao")
+def criar_pedido_agendado() -> Response:
+    titulo = request.form.get("titulo", "").strip()
+    itens_texto = request.form.get("itens_texto", "").strip()
+    loja_id = request.form.get("loja_id", type=int)
+    agendado_para = request.form.get("agendado_para", "").strip()
+    if not titulo or not itens_texto:
+        flash("Informe título e itens do pedido.", "error")
+        return redirect(url_for("comunicacao"))
+    with closing(get_conn()) as conn:
+        cur = conn.execute("INSERT INTO scheduled_orders (loja_id, titulo, itens_texto, agendado_para, criado_por, criado_em) VALUES (?, ?, ?, ?, ?, ?)", (loja_id, titulo, itens_texto, agendado_para, g.user["id"], agora_iso()))
+        oid = cur.lastrowid
+        conn.commit()
+    registrar_auditoria("criar_pedido_agendado", "scheduled_orders", str(oid), {"titulo": titulo, "loja_id": loja_id})
+    flash("Pedido agendado criado.", "success")
+    return redirect(url_for("comunicacao"))
+
+
+@app.post("/comunicacao/pedidos-agendados/<int:order_id>/enviar")
+@login_required
+@module_required("pedidos")
+def enviar_pedido_agendado(order_id: int) -> Response:
+    with closing(get_conn()) as conn:
+        pedido = conn.execute("SELECT * FROM scheduled_orders WHERE id = ?", (order_id,)).fetchone()
+        if pedido is None:
+            flash("Pedido agendado não encontrado.", "error")
+            return redirect(url_for("comunicacao"))
+        conn.execute("UPDATE scheduled_orders SET status = 'ENVIADO_AO_SEPARADOR', enviado_por = ?, enviado_em = ? WHERE id = ?", (g.user["id"], agora_iso(), order_id))
+        conn.commit()
+    registrar_auditoria("enviar_pedido_agendado_ao_separador", "scheduled_orders", str(order_id), {"titulo": pedido["titulo"], "loja_id": pedido["loja_id"]})
+    flash("Pedido marcado como enviado ao separador. Use Criar pedidos para montar a separação oficial quando necessário.", "success")
+    return redirect(url_for("comunicacao"))
 
 @app.get("/favicon.ico")
 def favicon() -> Response:

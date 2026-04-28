@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% block content %}
+<main class="wrap page-stack communication-page">
+  <section class="card hero-card">
+    <h1>Chat, tarefas e pedidos agendados</h1>
+    <p>Converse com usuários, envie arquivos temporários, organize tarefas e agende pedidos para separação. Todas as ações ficam registradas em auditoria.</p>
+  </section>
+
+  <section class="grid-2">
+    <div class="card">
+      <h2>Grupos</h2>
+      {% if user_is_admin(g.user) %}
+      <form method="post" action="{{ url_for('criar_grupo_chat') }}" class="form-grid compact-form">
+        <input name="nome" placeholder="Nome do grupo" required>
+        <div class="checkbox-list">
+          {% for u in usuarios %}
+            <label><input type="checkbox" name="participantes" value="{{ u.id }}"> {{ u.nome }}</label>
+          {% endfor %}
+        </div>
+        <button class="btn primary">Criar grupo</button>
+      </form>
+      {% else %}
+        <p class="muted">Somente o admin cria grupos. Você conversa nos grupos onde foi incluído.</p>
+      {% endif %}
+      <div class="list-cards">
+        {% for gpo in grupos %}
+          <a class="mini-card" href="{{ url_for('comunicacao', group_id=gpo.id) }}">
+            <strong>{{ gpo.nome }}</strong>
+            <span>{{ gpo.total_membros }} participante(s)</span>
+          </a>
+        {% else %}
+          <p class="muted">Nenhum grupo encontrado.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card chat-card">
+      <h2>Conversa{% if grupo_atual %}: {{ grupo_atual.nome }}{% endif %}</h2>
+      {% if grupo_atual %}
+      <div class="chat-box">
+        {% for msg in mensagens %}
+          <div class="chat-line {% if msg.user_id == g.user.id %}mine{% endif %}">
+            <div class="bubble">
+              <small>{{ msg.usuario_nome or 'Usuário' }} • {{ msg.criado_em }}</small>
+              {% if msg.mensagem %}<p>{{ msg.mensagem }}</p>{% endif %}
+              {% if msg.arquivo_nome and msg.arquivo_status == 'pendente' %}
+                <div class="file-pill">📎 {{ msg.arquivo_nome }}
+                  <a href="{{ url_for('baixar_arquivo_chat', message_id=msg.id) }}">baixar</a>
+                  {% if msg.user_id != g.user.id %}
+                  <form method="post" action="{{ url_for('confirmar_arquivo_chat', message_id=msg.id) }}"><button class="btn small">Confirmar recebimento</button></form>
+                  {% endif %}
+                </div>
+              {% elif msg.arquivo_nome %}
+                <div class="file-pill muted">📎 {{ msg.arquivo_nome }} — {{ msg.arquivo_status }}</div>
+              {% endif %}
+            </div>
+          </div>
+        {% else %}<p class="muted">Comece a conversa.</p>{% endfor %}
+      </div>
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('enviar_mensagem_chat', group_id=grupo_atual.id) }}" class="chat-form">
+        <textarea name="mensagem" placeholder="Digite sua mensagem"></textarea>
+        <input type="file" name="arquivo">
+        <button class="btn primary">Enviar</button>
+      </form>
+      {% else %}<p class="muted">Selecione ou crie um grupo.</p>{% endif %}
+    </div>
+  </section>
+
+  <section class="grid-2">
+    <div class="card">
+      <h2>Tarefas</h2>
+      <form method="post" action="{{ url_for('criar_tarefa') }}" class="form-grid compact-form">
+        <input name="titulo" placeholder="Título da tarefa" required>
+        <textarea name="descricao" placeholder="Descrição"></textarea>
+        <select name="responsavel_id"><option value="">Sem responsável</option>{% for u in usuarios %}<option value="{{ u.id }}">{{ u.nome }}</option>{% endfor %}</select>
+        <input type="datetime-local" name="prazo">
+        <button class="btn primary">Criar tarefa</button>
+      </form>
+      <div class="responsive-table"><table><thead><tr><th>Tarefa</th><th>Responsável</th><th>Status</th><th>Ação</th></tr></thead><tbody>
+        {% for t in tarefas %}<tr><td>{{ t.titulo }}<br><small>{{ t.prazo or '' }}</small></td><td>{{ t.responsavel_nome or '-' }}</td><td>{{ t.status }}</td><td>{% if t.status != 'CONCLUIDA' %}<form method="post" action="{{ url_for('concluir_tarefa', task_id=t.id) }}"><button class="btn small">Concluir</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="4">Sem tarefas.</td></tr>{% endfor %}
+      </tbody></table></div>
+    </div>
+
+    <div class="card">
+      <h2>Pedidos agendados</h2>
+      <form method="post" action="{{ url_for('criar_pedido_agendado') }}" class="form-grid compact-form">
+        <input name="titulo" placeholder="Ex: Pedido Loja 3 amanhã" required>
+        <select name="loja_id"><option value="">Escolha a loja</option>{% for loja in lojas %}<option value="{{ loja.id }}">{{ loja.nome }}</option>{% endfor %}</select>
+        <input type="datetime-local" name="agendado_para">
+        <textarea name="itens_texto" placeholder="Itens do pedido. Ex: 123 - Pão - 10" required></textarea>
+        <button class="btn primary">Agendar pedido</button>
+      </form>
+      <div class="responsive-table"><table><thead><tr><th>Pedido</th><th>Loja</th><th>Status</th><th>Ação</th></tr></thead><tbody>
+        {% for p in pedidos_agendados %}<tr><td>{{ p.titulo }}<br><small>{{ p.agendado_para or '' }}</small></td><td>{{ p.loja_nome or '-' }}</td><td>{{ p.status }}</td><td>{% if pode_criar_pedidos and p.status == 'AGENDADO' %}<form method="post" action="{{ url_for('enviar_pedido_agendado', order_id=p.id) }}"><button class="btn small primary">Enviar ao separador</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="4">Sem pedidos agendados.</td></tr>{% endfor %}
+      </tbody></table></div>
+    </div>
+  </section>
+</main>
+{% endblock %}

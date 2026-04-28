@@ -26,6 +26,7 @@
       {% if user_has_access(g.user, 'lotes') %}<a href="{{ url_for('listar_lotes') }}">Lotes</a>{% endif %}
       {% if user_has_access(g.user, 'configuracoes') %}<a href="{{ url_for('configuracoes') }}">Configurações</a>{% endif %}
       {% if user_has_access(g.user, 'mcp_teste') %}<a href="{{ url_for('mcp_teste') }}">MCP/IA</a>{% endif %}
+      {% if user_has_access(g.user, 'comunicacao') %}<a href="{{ url_for('comunicacao') }}">Chat/Tarefas</a>{% endif %}
       {% if user_has_access(g.user, 'codigo_fonte') %}<a href="{{ url_for('admin_codigo_fonte') }}">Código fonte</a>{% endif %}
       {% if user_has_access(g.user, 'auditoria') %}<a href="{{ url_for('auditoria') }}">Auditoria</a>{% endif %}
       <a href="{{ url_for('minha_conta') }}">Minha conta</a>
