@@ -50,6 +50,7 @@
     const open = topbar.classList.toggle('is-open');
     document.body.classList.toggle('menu-open', open);
     toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) { nav.scrollTop = 0; }
   });
 
   nav.querySelectorAll('a').forEach(function(link){
