@@ -480,6 +480,23 @@ CREATE TABLE IF NOT EXISTS scheduled_orders (
     FOREIGN KEY (criado_por) REFERENCES users (id),
     FOREIGN KEY (enviado_por) REFERENCES users (id)
 );
+CREATE TABLE IF NOT EXISTS store_issue_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipo TEXT NOT NULL,
+    destino_user_id INTEGER,
+    loja_id INTEGER,
+    nota_numero TEXT,
+    itens_json TEXT NOT NULL DEFAULT '[]',
+    relato TEXT,
+    status TEXT NOT NULL DEFAULT 'ENVIADO',
+    chat_group_id INTEGER,
+    criado_por INTEGER,
+    criado_em TEXT NOT NULL,
+    FOREIGN KEY (destino_user_id) REFERENCES users (id),
+    FOREIGN KEY (loja_id) REFERENCES stores (id),
+    FOREIGN KEY (chat_group_id) REFERENCES chat_groups (id),
+    FOREIGN KEY (criado_por) REFERENCES users (id)
+);
 
 CREATE TABLE IF NOT EXISTS erp_stock_imports (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -6996,6 +7013,132 @@ def health() -> Response:
         return jsonify({"status": "error", "error": str(exc), "db": DB_PATH}), 500
 
 
+
+
+def _mcp_encontrar_usuario_por_texto(conn: sqlite3.Connection, texto: str) -> sqlite3.Row | None:
+    termo = str(texto or "").strip().casefold()
+    if not termo:
+        return None
+    usuarios = conn.execute("SELECT id, nome, username FROM users WHERE ativo = 1 ORDER BY nome").fetchall()
+    for u in usuarios:
+        nome = str(u["nome"] or "").casefold()
+        username = str(u["username"] or "").casefold()
+        if termo in {nome, username} or termo in nome or termo in username:
+            return u
+    return None
+
+
+def _mcp_encontrar_loja_por_texto(conn: sqlite3.Connection, texto: str) -> sqlite3.Row | None:
+    termo = str(texto or "").strip().casefold()
+    if not termo:
+        return None
+    lojas = conn.execute("SELECT id, nome FROM stores WHERE ativo = 1 ORDER BY nome").fetchall()
+    for loja in lojas:
+        nome = str(loja["nome"] or "").casefold()
+        if termo == nome or termo in nome:
+            return loja
+    if termo.isdigit():
+        return conn.execute("SELECT id, nome FROM stores WHERE id = ?", (int(termo),)).fetchone()
+    return None
+
+
+def _mcp_obter_grupo_direto(conn: sqlite3.Connection, destino_user_id: int) -> int:
+    atual = int(g.user["id"])
+    destino = conn.execute("SELECT nome, username FROM users WHERE id = ?", (destino_user_id,)).fetchone()
+    nome_destino = destino["nome"] if destino else str(destino_user_id)
+    nome_atual = g.user["nome"] or g.user["username"]
+    nome = f"Ocorrências - {nome_atual} / {nome_destino}"
+    grupo = conn.execute("SELECT id FROM chat_groups WHERE nome = ? AND ativo = 1 LIMIT 1", (nome,)).fetchone()
+    if grupo:
+        gid = int(grupo["id"])
+    else:
+        cur = conn.execute("INSERT INTO chat_groups (nome, criado_por, criado_em) VALUES (?, ?, ?)", (nome, atual, agora_iso()))
+        gid = int(cur.lastrowid)
+    for uid in {atual, int(destino_user_id)}:
+        conn.execute("INSERT OR IGNORE INTO chat_group_members (group_id, user_id, criado_em) VALUES (?, ?, ?)", (gid, uid, agora_iso()))
+    return gid
+
+
+def _formatar_ocorrencia_mcp(tipo: str, loja_nome: str, nota_numero: str, itens: list[dict[str, Any]], relato: str) -> str:
+    labels = {
+        "mercadoria_sem_nota": "Mercadoria chegou sem nota",
+        "nota_sem_mercadoria": "Nota chegou, mas mercadoria veio faltando/passando",
+        "outro": "Outro problema informado pela loja",
+    }
+    linhas = ["Ocorrência registrada via Assistente MCP/IA", f"Tipo: {labels.get(tipo, tipo)}"]
+    if loja_nome:
+        linhas.append(f"Loja: {loja_nome}")
+    if nota_numero:
+        linhas.append(f"Nota: {nota_numero}")
+    if relato:
+        linhas.append(f"Relato: {relato}")
+    if itens:
+        linhas.append("Itens:")
+        for idx, item in enumerate(itens, 1):
+            cod = item.get("codigo") or item.get("codigo_barras") or "-"
+            desc = item.get("descricao") or "-"
+            qtd = item.get("quantidade") or item.get("diferenca") or "-"
+            sinal = item.get("sinal") or ""
+            linhas.append(f"{idx}. Código/Barras: {cod} | Descrição: {desc} | Qtd: {sinal}{qtd}")
+    return "\n".join(linhas)
+
+
+@app.get("/api/mcp/usuarios")
+@login_required
+def api_mcp_usuarios() -> Response:
+    with closing(get_conn()) as conn:
+        rows = conn.execute("SELECT id, nome, username, perfil FROM users WHERE ativo = 1 ORDER BY nome").fetchall()
+    return jsonify({"usuarios": [dict(r) for r in rows]})
+
+
+@app.post("/api/mcp/registrar-ocorrencia")
+@login_required
+@module_required("comunicacao")
+def api_mcp_registrar_ocorrencia() -> Response:
+    data = request.get_json(silent=True) or {}
+    tipo = str(data.get("tipo") or "").strip()
+    destino_txt = str(data.get("destino") or "").strip()
+    loja_txt = str(data.get("loja") or "").strip()
+    nota_numero = str(data.get("nota_numero") or "").strip()
+    relato = str(data.get("relato") or "").strip()
+    itens = data.get("itens") if isinstance(data.get("itens"), list) else []
+
+    if tipo not in {"mercadoria_sem_nota", "nota_sem_mercadoria", "outro"}:
+        return jsonify({"error": "Tipo de problema inválido."}), 400
+    if not destino_txt:
+        return jsonify({"error": "Informe o usuário de destino."}), 400
+    if tipo == "nota_sem_mercadoria" and not nota_numero:
+        return jsonify({"error": "Informe o número da nota."}), 400
+    if tipo in {"mercadoria_sem_nota", "nota_sem_mercadoria"} and not itens:
+        return jsonify({"error": "Informe pelo menos um item."}), 400
+
+    with closing(get_conn()) as conn:
+        destino = _mcp_encontrar_usuario_por_texto(conn, destino_txt)
+        if destino is None:
+            return jsonify({"error": f"Não encontrei o usuário de destino: {destino_txt}."}), 404
+        loja = _mcp_encontrar_loja_por_texto(conn, loja_txt) if loja_txt else None
+        gid = _mcp_obter_grupo_direto(conn, int(destino["id"]))
+        mensagem = _formatar_ocorrencia_mcp(tipo, loja["nome"] if loja else loja_txt, nota_numero, itens, relato)
+        cur = conn.execute("""
+            INSERT INTO store_issue_reports (tipo, destino_user_id, loja_id, nota_numero, itens_json, relato, chat_group_id, criado_por, criado_em)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (tipo, int(destino["id"]), int(loja["id"]) if loja else None, nota_numero, json.dumps(itens, ensure_ascii=False), relato, gid, int(g.user["id"]), agora_iso()))
+        issue_id = int(cur.lastrowid)
+        conn.execute("""
+            INSERT INTO chat_messages (group_id, user_id, mensagem, arquivo_status, criado_em)
+            VALUES (?, ?, ?, 'sem_arquivo', ?)
+        """, (gid, int(g.user["id"]), mensagem, agora_iso()))
+        conn.commit()
+
+    registrar_auditoria("mcp_registrar_ocorrencia_loja", "store_issue_reports", str(issue_id), {
+        "tipo": tipo, "destino": destino_txt, "loja": loja_txt, "nota_numero": nota_numero, "itens": itens
+    })
+    return jsonify({
+        "ok": True,
+        "mensagem": "Ocorrência enviada no chat para " + (destino["nome"] or destino["username"]) + ".",
+        "redirect_url": url_for("comunicacao", group_id=gid),
+        "issue_id": issue_id,
+    })
 if __name__ == "__main__":
     ensure_default_data()
     port = int(os.environ.get("PORT", 5000))

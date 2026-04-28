@@ -85,11 +85,187 @@
     return html;
   }
 
+  let issueWizard = null;
+
+  function wantsIssueFlow(text) {
+    const t = String(text || '').toLowerCase();
+    return ['problema', 'ocorrência', 'ocorrencia', 'mercadoria sem nota', 'nota sem mercadoria', 'faltando', 'passando', 'enviar para'].some(k => t.includes(k));
+  }
+
+  function startIssueWizard(initialText) {
+    issueWizard = {
+      step: 'destino',
+      tipo: '',
+      destino: '',
+      loja: '',
+      nota_numero: '',
+      relato: initialText || '',
+      itens: [],
+      itemAtual: {}
+    };
+    addMsg('bot', 'Vamos registrar uma ocorrência e enviar para o usuário correto. Para quem devo enviar? Digite o nome do usuário de destino.');
+  }
+
+  function issueResumo() {
+    const tipoLabel = issueWizard.tipo === 'mercadoria_sem_nota' ? 'Mercadoria sem nota'
+      : issueWizard.tipo === 'nota_sem_mercadoria' ? 'Nota chegou, mas mercadoria faltou/passou'
+      : 'Outro problema';
+    const itens = issueWizard.itens.length
+      ? issueWizard.itens.map((i, idx) => `${idx+1}. ${i.codigo || i.codigo_barras || '-'} | ${i.descricao || '-'} | ${i.sinal || ''}${i.quantidade || i.diferenca || '-'}`).join('\n')
+      : 'Nenhum item informado';
+    return `Destino: ${issueWizard.destino}\nTipo: ${tipoLabel}\nLoja: ${issueWizard.loja || '-'}\nNota: ${issueWizard.nota_numero || '-'}\nRelato: ${issueWizard.relato || '-'}\nItens:\n${itens}`;
+  }
+
+  async function finalizarIssueWizard() {
+    const payload = {
+      tipo: issueWizard.tipo,
+      destino: issueWizard.destino,
+      loja: issueWizard.loja,
+      nota_numero: issueWizard.nota_numero,
+      relato: issueWizard.relato,
+      itens: issueWizard.itens
+    };
+    const resp = await fetch('{{ url_for('api_mcp_registrar_ocorrencia') }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Não foi possível registrar a ocorrência.');
+    addMsg('bot', data.mensagem || 'Ocorrência enviada.');
+    if (data.redirect_url) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Abrir conversa enviada';
+      btn.className = 'btn';
+      btn.addEventListener('click', () => { window.location.href = data.redirect_url; });
+      const last = chat.lastElementChild;
+      if (last) last.appendChild(btn);
+    }
+    issueWizard = null;
+  }
+
+  async function handleIssueWizard(text) {
+    const msg = String(text || '').trim();
+    if (!issueWizard) return false;
+
+    if (['cancelar', 'sair', 'parar'].includes(msg.toLowerCase())) {
+      issueWizard = null;
+      addMsg('bot', 'Registro cancelado.');
+      return true;
+    }
+
+    if (issueWizard.step === 'destino') {
+      issueWizard.destino = msg;
+      issueWizard.step = 'tipo';
+      addMsg('bot', 'Qual é o tipo do problema? Responda: 1 para mercadoria sem nota, 2 para nota chegou mas mercadoria faltou/passou, ou 3 para outro.');
+      return true;
+    }
+
+    if (issueWizard.step === 'tipo') {
+      const t = msg.toLowerCase();
+      if (t === '1' || t.includes('mercadoria sem nota')) issueWizard.tipo = 'mercadoria_sem_nota';
+      else if (t === '2' || t.includes('nota') || t.includes('faltou') || t.includes('passou')) issueWizard.tipo = 'nota_sem_mercadoria';
+      else issueWizard.tipo = 'outro';
+      issueWizard.step = 'loja';
+      addMsg('bot', 'De qual loja é essa ocorrência?');
+      return true;
+    }
+
+    if (issueWizard.step === 'loja') {
+      issueWizard.loja = msg;
+      if (issueWizard.tipo === 'nota_sem_mercadoria') {
+        issueWizard.step = 'nota';
+        addMsg('bot', 'Informe o número da nota.');
+      } else if (issueWizard.tipo === 'outro') {
+        issueWizard.step = 'relato';
+        addMsg('bot', 'Descreva o problema com detalhes.');
+      } else {
+        issueWizard.step = 'item_codigo';
+        addMsg('bot', 'Informe o código do produto ou código de barras da mercadoria que chegou sem nota.');
+      }
+      return true;
+    }
+
+    if (issueWizard.step === 'nota') {
+      issueWizard.nota_numero = msg;
+      issueWizard.step = 'item_codigo';
+      addMsg('bot', 'Informe o código do produto ou código de barras da mercadoria da nota.');
+      return true;
+    }
+
+    if (issueWizard.step === 'relato') {
+      issueWizard.relato = msg;
+      issueWizard.step = 'confirmar';
+      addMsg('bot', 'Confere se está certo?\n' + issueResumo() + '\n\nResponda SIM para enviar ou NÃO para cancelar.');
+      return true;
+    }
+
+    if (issueWizard.step === 'item_codigo') {
+      issueWizard.itemAtual = {codigo: msg};
+      issueWizard.step = 'item_descricao';
+      addMsg('bot', 'Qual é a descrição da mercadoria?');
+      return true;
+    }
+
+    if (issueWizard.step === 'item_descricao') {
+      issueWizard.itemAtual.descricao = msg;
+      issueWizard.step = 'item_quantidade';
+      if (issueWizard.tipo === 'nota_sem_mercadoria') {
+        addMsg('bot', 'Informe a quantidade e o sinal: use - para faltando ou + para passando. Ex: -3 ou +2.');
+      } else {
+        addMsg('bot', 'Informe a quantidade.');
+      }
+      return true;
+    }
+
+    if (issueWizard.step === 'item_quantidade') {
+      let qtd = msg.replace(',', '.');
+      if (issueWizard.tipo === 'nota_sem_mercadoria') {
+        issueWizard.itemAtual.sinal = qtd.trim().startsWith('-') ? '-' : '+';
+        issueWizard.itemAtual.quantidade = qtd.replace(/^[-+]/, '');
+      } else {
+        issueWizard.itemAtual.quantidade = qtd;
+      }
+      issueWizard.itens.push(issueWizard.itemAtual);
+      issueWizard.itemAtual = {};
+      issueWizard.step = 'mais_item';
+      addMsg('bot', 'Item registrado. Deseja registrar outro item? Responda SIM ou NÃO.');
+      return true;
+    }
+
+    if (issueWizard.step === 'mais_item') {
+      if (msg.toLowerCase().startsWith('s')) {
+        issueWizard.step = 'item_codigo';
+        addMsg('bot', 'Informe o código do próximo produto ou código de barras.');
+      } else {
+        issueWizard.step = 'confirmar';
+        addMsg('bot', 'Confere se é isso mesmo?\n' + issueResumo() + '\n\nResponda SIM para enviar ao usuário de destino ou NÃO para cancelar.');
+      }
+      return true;
+    }
+
+    if (issueWizard.step === 'confirmar') {
+      if (msg.toLowerCase().startsWith('s')) {
+        try { await finalizarIssueWizard(); }
+        catch(err) { addMsg('bot', 'Não consegui enviar: ' + (err.message || err)); }
+      } else {
+        issueWizard = null;
+        addMsg('bot', 'Registro cancelado.');
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   async function ask(){
     const mensagem = input.value.trim();
     if (!mensagem) return;
     addMsg('user', mensagem);
     input.value = '';
+    if (issueWizard) { await handleIssueWizard(mensagem); return; }
+    if (wantsIssueFlow(mensagem)) { startIssueWizard(mensagem); return; }
     const loading = addMsg('bot typing', 'Digitando...');
     try {
       const resp = await fetch('{{ url_for('api_mcp_perguntar') }}', {
