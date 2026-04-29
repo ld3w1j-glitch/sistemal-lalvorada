@@ -1,5 +1,5 @@
 <div class="floating-ai" id="floating-ai" data-context="{{ request.endpoint or 'mcp_teste' }}" data-user-store="{{ g.user.store_nome if g.user and g.user.store_nome else '' }}">
-  <button type="button" class="floating-ai-button" id="floating-ai-toggle">IA</button>
+  <button type="button" class="floating-ai-button sun-ai-button" id="floating-ai-toggle" title="IA Alvorada"><img src="{{ url_for('static', filename='img/ia_sun_mascot.png') }}" alt="IA Alvorada"><span>IA</span></button>
   <section class="floating-ai-panel" id="floating-ai-panel" aria-live="polite">
     <div class="floating-ai-head">
       <div>

@@ -68,6 +68,7 @@
             <h2>{{ grupo_atual.nome }}</h2>
             <span>online • digite /tarefa ou /pedido para criar uma ação</span>
           </div>
+          <img class="wa-header-sun" src="{{ url_for('static', filename='img/ia_sun_mascot.png') }}" alt="IA Alvorada">
         </div>
 
         <div class="wa-chat-box" id="waChatBox">
@@ -135,6 +136,11 @@
             <input type="datetime-local" name="agendado_para">
             <button class="btn primary">Enviar pedido</button>
           </form>
+        </div>
+
+        <div class="wa-chat-ai-mascot" title="IA Alvorada">
+          <img src="{{ url_for('static', filename='img/ia_sun_mascot.png') }}" alt="IA Alvorada">
+          <span>IA Alvorada</span>
         </div>
 
         <form method="post" enctype="multipart/form-data" action="{{ url_for('enviar_mensagem_chat', group_id=grupo_atual.id) }}" class="wa-chat-form">
