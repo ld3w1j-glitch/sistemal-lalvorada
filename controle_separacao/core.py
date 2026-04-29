@@ -1590,7 +1590,7 @@ def painel_gerencial_padaria_cd() -> dict[str, Any]:
         SELECT
             COUNT(*) AS total_itens,
             COALESCE(SUM(quantidade_atual), 0) AS quantidade_total,
-            COALESCE(SUM(COALESCE(quantidade_atual, 0) * COALESCE(custo_unitario, 0)), 0) AS valor_estoque,
+            COALESCE(SUM(COALESCE(quantidade_atual, 0) * COALESCE(embalagem,1) * COALESCE(custo_unitario, 0)), 0) AS valor_estoque,
             SUM(CASE WHEN COALESCE(quantidade_atual, 0) <= 0 THEN 1 ELSE 0 END) AS itens_zerados,
             SUM(CASE WHEN COALESCE(quantidade_atual, 0) > 0 AND COALESCE(quantidade_atual, 0) <= 10 THEN 1 ELSE 0 END) AS itens_abaixo
         FROM stock_items
