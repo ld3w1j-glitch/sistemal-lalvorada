@@ -318,14 +318,14 @@
     if (wantsIssueFlow(mensagem)) { startIssueWizard(mensagem); return; }
     const loading = addMsg('bot typing', 'Digitando...');
     try {
-      const resp = await fetch('{{ url_for('api_mcp_perguntar') }}', {
+      const resp = await fetch('{{ url_for('api_ia_responder') }}', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({contexto: ctx, mensagem, filtros: {limite: 30}})
+        body: JSON.stringify({mensagem})
       });
       const data = await resp.json();
       loading.remove();
-      const bot = addMsg('bot', data.answer || 'Pronto.');
+      const bot = addMsg('bot', data.resposta || data.answer || 'Pronto.');
       const extra = renderExtra(data);
       if (extra) bot.insertAdjacentHTML('beforeend', extra);
       if (data.acoes_sugeridas && data.acoes_sugeridas.length) {

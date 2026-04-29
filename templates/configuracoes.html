@@ -12,6 +12,37 @@
     </form>
   </div>
 
+
+  <div class="card ai-config-card">
+    <div class="mcp-head">
+      <div>
+        <p class="eyebrow">IA Alvorada</p>
+        <h2 class="section-title">Conectar ChatGPT / OpenAI</h2>
+      </div>
+      <span class="badge {{ 'badge-admin' if openai_configurada else '' }}">{{ 'Conectada' if openai_configurada else 'Não configurada' }}</span>
+    </div>
+    <p class="muted">Cole sua chave da API aqui para ativar o solzinho da IA dentro do sistema. A chave fica salva no banco do sistema e aparece mascarada.</p>
+    <form method="post" class="form-grid">
+      <input type="hidden" name="vincular_estoque" value="{{ '1' if vincular_estoque else '0' }}">
+      <input type="hidden" name="usar_conferente" value="{{ '1' if usar_conferente else '0' }}">
+      <input type="hidden" name="maintenance_mode" value="{{ '1' if maintenance_mode else '0' }}">
+      <input type="hidden" name="code_editor_extra_password" value="{{ '1' if code_editor_extra_password else '0' }}">
+      <label>
+        Modelo
+        <input name="openai_model" value="{{ openai_model }}" placeholder="gpt-4.1-mini">
+      </label>
+      <label>
+        Chave API
+        <input name="openai_api_key" type="password" placeholder="Cole sua chave aqui. Atual: {{ openai_api_key_mask or 'nenhuma' }}">
+      </label>
+      <label class="check-line"><input type="checkbox" name="limpar_openai_api_key" value="1"> Remover chave salva</label>
+      <button type="submit">Salvar IA</button>
+    </form>
+    <form method="post" action="{{ url_for('testar_openai_configuracao') }}" style="margin-top:10px;">
+      <button type="submit" class="btn">Testar conexão com IA</button>
+    </form>
+  </div>
+
   <div class="card mcp-card">
     <div class="mcp-head">
       <div>

@@ -11,6 +11,8 @@ import difflib
 import traceback
 import ast
 import operator
+import urllib.request
+import urllib.error
 from pathlib import Path
 from contextlib import closing
 from datetime import datetime
@@ -1023,6 +1025,59 @@ def set_setting(key: str, value: str) -> None:
             (key, value),
         )
         conn.commit()
+
+
+def get_openai_api_key() -> str:
+    return (get_setting("openai_api_key", "") or os.environ.get("OPENAI_API_KEY", "")).strip()
+
+
+def mask_secret(value: str) -> str:
+    value = (value or "").strip()
+    if not value:
+        return ""
+    if len(value) <= 10:
+        return "********"
+    return value[:7] + "..." + value[-4:]
+
+
+def chamar_openai_simples(mensagem: str, *, system: str = "") -> str:
+    api_key = get_openai_api_key()
+    if not api_key:
+        return "Configure sua chave da OpenAI em Configurações para ativar a IA."
+    model = (get_setting("openai_model", "gpt-4.1-mini") or "gpt-4.1-mini").strip()
+    payload = {
+        "model": model,
+        "input": [
+            {"role": "system", "content": system or "Você é a IA Alvorada. Responda em português, de forma curta, prática e segura."},
+            {"role": "user", "content": mensagem},
+        ],
+    }
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/responses",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            erro = json.loads(exc.read().decode("utf-8"))
+            msg = erro.get("error", {}).get("message") or str(exc)
+        except Exception:
+            msg = str(exc)
+        return f"Erro ao chamar a OpenAI: {msg}"
+    except Exception as exc:
+        return f"Erro ao conectar com a IA: {exc}"
+    if data.get("output_text"):
+        return str(data["output_text"]).strip()
+    partes = []
+    for item in data.get("output", []) or []:
+        for content in item.get("content", []) or []:
+            if content.get("text"):
+                partes.append(str(content["text"]))
+    return "\n".join(partes).strip() or "A IA respondeu, mas não retornou texto."
 
 
 def registrar_auditoria(action: str, entity_type: str = "", entity_ref: str = "", details: dict[str, Any] | None = None) -> None:
@@ -3906,7 +3961,13 @@ def configuracoes() -> str | Response:
         set_setting("usar_conferente", "1" if request.form.get("usar_conferente") == "1" else "0")
         set_setting("maintenance_mode", "1" if request.form.get("maintenance_mode") == "1" else "0")
         set_setting("code_editor_extra_password", "1" if request.form.get("code_editor_extra_password") == "1" else "0")
-        registrar_auditoria("salvar_configuracoes", "settings", "geral", {"maintenance_mode": request.form.get("maintenance_mode") == "1"})
+        set_setting("openai_model", (request.form.get("openai_model") or "gpt-4.1-mini").strip())
+        nova_chave = (request.form.get("openai_api_key") or "").strip()
+        if nova_chave:
+            set_setting("openai_api_key", nova_chave)
+        if request.form.get("limpar_openai_api_key") == "1":
+            set_setting("openai_api_key", "")
+        registrar_auditoria("salvar_configuracoes", "settings", "geral", {"maintenance_mode": request.form.get("maintenance_mode") == "1", "openai_configurada": bool(get_openai_api_key())})
         flash("Configuração salva com sucesso.", "success")
         return redirect(url_for("configuracoes"))
     return render_template(
@@ -3916,9 +3977,38 @@ def configuracoes() -> str | Response:
         usar_conferente=get_setting("usar_conferente", "1") == "1",
         maintenance_mode=get_setting("maintenance_mode", "0") == "1",
         code_editor_extra_password=get_setting("code_editor_extra_password", "1") == "1",
+        openai_model=get_setting("openai_model", "gpt-4.1-mini"),
+        openai_api_key_mask=mask_secret(get_openai_api_key()),
+        openai_configurada=bool(get_openai_api_key()),
         mcp_db_path=DB_PATH,
         mcp_command="python -m controle_separacao.mcp_server",
     )
+
+
+@app.post("/configuracoes/openai/testar")
+@login_required
+@module_required("configuracoes")
+@roles_required("admin")
+def testar_openai_configuracao() -> Response:
+    resposta = chamar_openai_simples("Responda apenas: IA Alvorada conectada.")
+    ok = "erro" not in resposta.lower() and "configure" not in resposta.lower()
+    registrar_auditoria("testar_openai", "settings", "openai", {"ok": ok})
+    flash(resposta, "success" if ok else "error")
+    return redirect(url_for("configuracoes"))
+
+
+@app.post("/api/ia/responder")
+@login_required
+def api_ia_responder() -> Response:
+    data = request.get_json(silent=True) or {}
+    mensagem = str(data.get("mensagem") or "").strip()
+    if not mensagem:
+        return jsonify({"ok": False, "resposta": "Digite uma mensagem para a IA."}), 400
+    resposta = chamar_openai_simples(
+        mensagem,
+        system="Você é a IA Alvorada integrada ao sistema de padaria/estoque. Responda de forma curta, prática e em português. Não altere dados do sistema; apenas oriente o usuário.",
+    )
+    return jsonify({"ok": True, "resposta": resposta})
 
 
 @app.route("/mcp", methods=["GET"])
