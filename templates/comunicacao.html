@@ -41,36 +41,64 @@
       </div>
     </div>
 
-    <div class="card chat-card">
-      <h2>Conversa{% if grupo_atual %}: {{ grupo_atual.nome }}{% endif %}</h2>
+    <div class="card chat-card whatsapp-chat-card">
       {% if grupo_atual %}
-      <div class="chat-box">
-        {% for msg in mensagens %}
-          <div class="chat-line {% if msg.user_id == g.user.id %}mine{% endif %}">
-            <div class="bubble">
-              <small>{{ msg.usuario_nome or 'Usuário' }} • {{ msg.criado_em }}</small>
-              {% if msg.mensagem %}<p>{{ msg.mensagem }}</p>{% endif %}
-              {% if msg.arquivo_nome and msg.arquivo_status == 'pendente' %}
-                <div class="file-pill">📎 {{ msg.arquivo_nome }}
-                  <a href="{{ url_for('baixar_arquivo_chat', message_id=msg.id) }}">baixar</a>
-                  {% if msg.user_id != g.user.id %}
-                  <form method="post" action="{{ url_for('confirmar_arquivo_chat', message_id=msg.id) }}"><button class="btn small">Confirmar recebimento</button></form>
-                  {% endif %}
-                </div>
-              {% elif msg.arquivo_nome %}
-                <div class="file-pill muted">📎 {{ msg.arquivo_nome }} — {{ msg.arquivo_status }}</div>
-              {% endif %}
-            </div>
+      <div class="wa-chat-shell">
+        <div class="wa-chat-header">
+          <div class="wa-avatar">{{ (grupo_atual.nome or 'C')[:1]|upper }}</div>
+          <div>
+            <h2>{{ grupo_atual.nome }}</h2>
+            <span>Chat interno • {{ mensagens|length }} mensagem(ns)</span>
           </div>
-        {% else %}<p class="muted">Comece a conversa.</p>{% endfor %}
+        </div>
+
+        <div class="wa-chat-box" id="waChatBox">
+          {% for msg in mensagens %}
+            <div class="wa-row {% if msg.user_id == g.user.id %}mine{% else %}other{% endif %}">
+              <div class="wa-bubble">
+                {% if msg.user_id != g.user.id %}<strong>{{ msg.usuario_nome or 'Usuário' }}</strong>{% endif %}
+                {% if msg.mensagem %}<p>{{ msg.mensagem }}</p>{% endif %}
+                {% if msg.arquivo_nome and msg.arquivo_status == 'pendente' %}
+                  <div class="wa-file">📎 {{ msg.arquivo_nome }}
+                    <a href="{{ url_for('baixar_arquivo_chat', message_id=msg.id) }}">baixar</a>
+                    {% if msg.user_id != g.user.id %}
+                    <form method="post" action="{{ url_for('confirmar_arquivo_chat', message_id=msg.id) }}"><button class="btn small">Confirmar</button></form>
+                    {% endif %}
+                  </div>
+                {% elif msg.arquivo_nome %}
+                  <div class="wa-file muted">📎 {{ msg.arquivo_nome }} — {{ msg.arquivo_status }}</div>
+                {% endif %}
+                <small>{{ msg.criado_em }}</small>
+              </div>
+            </div>
+          {% else %}
+            <div class="wa-empty">Nenhuma mensagem ainda. Comece a conversa.</div>
+          {% endfor %}
+        </div>
+
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('enviar_mensagem_chat', group_id=grupo_atual.id) }}" class="wa-chat-form">
+          <label class="wa-attach" title="Anexar arquivo">📎<input type="file" name="arquivo"></label>
+          <textarea name="mensagem" placeholder="Mensagem" rows="1"></textarea>
+          <button class="wa-send" type="submit" title="Enviar">➤</button>
+        </form>
       </div>
-      <form method="post" enctype="multipart/form-data" action="{{ url_for('enviar_mensagem_chat', group_id=grupo_atual.id) }}" class="chat-form">
-        <textarea name="mensagem" placeholder="Digite sua mensagem"></textarea>
-        <input type="file" name="arquivo">
-        <button class="btn primary">Enviar</button>
-      </form>
-      {% else %}<p class="muted">Selecione ou crie um grupo.</p>{% endif %}
+      {% else %}
+        <div class="wa-chat-shell wa-no-chat">
+          <div class="wa-empty">Selecione ou crie um grupo para conversar.</div>
+        </div>
+      {% endif %}
     </div>
+
+    <script>
+      const waChatBox = document.getElementById('waChatBox');
+      if (waChatBox) waChatBox.scrollTop = waChatBox.scrollHeight;
+      document.querySelectorAll('.wa-chat-form textarea').forEach((el) => {
+        el.addEventListener('input', () => {
+          el.style.height = 'auto';
+          el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+        });
+      });
+    </script>
   </section>
 
   <section class="grid-2">
