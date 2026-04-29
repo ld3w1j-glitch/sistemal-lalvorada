@@ -545,6 +545,9 @@ CREATE TABLE IF NOT EXISTS erp_stock_imports (
         FOREIGN KEY (stock_item_id) REFERENCES stock_items (id)
     );
     """)
+    ensure_column(conn, "chat_groups", "tipo_chat", "tipo_chat TEXT NOT NULL DEFAULT 'grupo'")
+    ensure_column(conn, "chat_groups", "direto_key", "direto_key TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_groups_direto_key ON chat_groups(direto_key) WHERE direto_key IS NOT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_erp_import_items_import_id ON erp_stock_import_items(import_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_erp_import_items_codigo ON erp_stock_import_items(codigo)")
     conn.executescript("""
@@ -7036,6 +7039,34 @@ def comunicacao() -> str:
     )
 
 
+
+@app.post("/comunicacao/direto/abrir")
+@login_required
+@module_required("comunicacao")
+def abrir_chat_direto() -> Response:
+    usuario_id = request.form.get("usuario_id", type=int)
+    if not usuario_id or usuario_id == g.user["id"]:
+        flash("Selecione um usuário válido.", "error")
+        return redirect(url_for("comunicacao"))
+    a, b = sorted([int(g.user["id"]), int(usuario_id)])
+    direto_key = f"{a}:{b}"
+    with closing(get_conn()) as conn:
+        destino = conn.execute("SELECT id, nome FROM users WHERE id = ? AND ativo = 1", (usuario_id,)).fetchone()
+        if destino is None:
+            flash("Usuário não encontrado.", "error")
+            return redirect(url_for("comunicacao"))
+        grupo = conn.execute("SELECT id FROM chat_groups WHERE direto_key = ? AND ativo = 1", (direto_key,)).fetchone()
+        if grupo is None:
+            nome = f"{g.user['nome']} ↔ {destino['nome']}"
+            cur = conn.execute("INSERT INTO chat_groups (nome, criado_por, criado_em, tipo_chat, direto_key) VALUES (?, ?, ?, 'direto', ?)", (nome, g.user["id"], agora_iso(), direto_key))
+            group_id = cur.lastrowid
+            conn.executemany("INSERT OR IGNORE INTO chat_group_members (group_id, user_id, criado_em) VALUES (?, ?, ?)", [(group_id, g.user["id"], agora_iso()), (group_id, usuario_id, agora_iso())])
+            conn.commit()
+        else:
+            group_id = grupo["id"]
+    return redirect(url_for("comunicacao", group_id=group_id))
+
+
 @app.post("/comunicacao/grupos/criar")
 @login_required
 @module_required("comunicacao")
@@ -7167,13 +7198,19 @@ def criar_tarefa() -> Response:
     if not titulo:
         flash("Informe o título da tarefa.", "error")
         return redirect(url_for("comunicacao"))
+    redirect_group_id = request.form.get("redirect_group_id", type=int)
     with closing(get_conn()) as conn:
         cur = conn.execute("INSERT INTO team_tasks (titulo, descricao, responsavel_id, prazo, criado_por, criado_em) VALUES (?, ?, ?, ?, ?, ?)", (titulo, descricao, responsavel_id, prazo, g.user["id"], agora_iso()))
         tid = cur.lastrowid
+        if redirect_group_id and _is_group_member(conn, redirect_group_id, g.user["id"]):
+            aviso = f"📌 Tarefa criada: {titulo}"
+            if descricao:
+                aviso += f"\n{descricao}"
+            conn.execute("INSERT INTO chat_messages (group_id, user_id, mensagem, arquivo_status, criado_em) VALUES (?, ?, ?, 'sem_arquivo', ?)", (redirect_group_id, g.user["id"], aviso, agora_iso()))
         conn.commit()
     registrar_auditoria("criar_tarefa", "team_tasks", str(tid), {"titulo": titulo, "responsavel_id": responsavel_id})
     flash("Tarefa criada.", "success")
-    return redirect(url_for("comunicacao"))
+    return redirect(url_for("comunicacao", group_id=redirect_group_id) if redirect_group_id else url_for("comunicacao"))
 
 
 @app.post("/comunicacao/tarefas/<int:task_id>/concluir")
@@ -7199,13 +7236,19 @@ def criar_pedido_agendado() -> Response:
     if not titulo or not itens_texto:
         flash("Informe título e itens do pedido.", "error")
         return redirect(url_for("comunicacao"))
+    redirect_group_id = request.form.get("redirect_group_id", type=int)
     with closing(get_conn()) as conn:
         cur = conn.execute("INSERT INTO scheduled_orders (loja_id, titulo, itens_texto, agendado_para, criado_por, criado_em) VALUES (?, ?, ?, ?, ?, ?)", (loja_id, titulo, itens_texto, agendado_para, g.user["id"], agora_iso()))
         oid = cur.lastrowid
+        if redirect_group_id and _is_group_member(conn, redirect_group_id, g.user["id"]):
+            aviso = f"🧾 Pedido agendado: {titulo}"
+            if itens_texto:
+                aviso += f"\n{itens_texto}"
+            conn.execute("INSERT INTO chat_messages (group_id, user_id, mensagem, arquivo_status, criado_em) VALUES (?, ?, ?, 'sem_arquivo', ?)", (redirect_group_id, g.user["id"], aviso, agora_iso()))
         conn.commit()
     registrar_auditoria("criar_pedido_agendado", "scheduled_orders", str(oid), {"titulo": titulo, "loja_id": loja_id})
     flash("Pedido agendado criado.", "success")
-    return redirect(url_for("comunicacao"))
+    return redirect(url_for("comunicacao", group_id=redirect_group_id) if redirect_group_id else url_for("comunicacao"))
 
 
 @app.post("/comunicacao/pedidos-agendados/<int:order_id>/enviar")

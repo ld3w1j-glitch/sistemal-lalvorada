@@ -1,54 +1,72 @@
 {% extends 'base.html' %}
 {% block content %}
-<main class="wrap page-stack communication-page">
+<main class="wrap page-stack communication-page communication-v2">
   <section class="card hero-card">
     <h1>Chat, tarefas e pedidos agendados</h1>
-    <p>Converse com usuários, envie arquivos temporários, organize tarefas e agende pedidos para separação. Todas as ações ficam registradas em auditoria.</p>
+    <p>Converse por grupo ou direto com um usuário. Para criar ações pelo chat, digite <strong>/tarefa</strong> ou <strong>/pedido</strong>.</p>
   </section>
 
-  <section class="grid-2">
-    <div class="card">
-      <h2>Grupos</h2>
-      {% if user_is_admin(g.user) %}
-      <form method="post" action="{{ url_for('criar_grupo_chat') }}" class="form-grid compact-form">
-        <input name="nome" placeholder="Nome do grupo" required>
-        <div class="checkbox-list">
+  <section class="chat-layout-v2">
+    <aside class="chat-sidebar card">
+      <div class="chat-sidebar-head">
+        <h2>Conversas</h2>
+      </div>
+
+      <form method="post" action="{{ url_for('abrir_chat_direto') }}" class="direct-chat-form">
+        <select name="usuario_id" required>
+          <option value="">Mensagem individual</option>
           {% for u in usuarios %}
-            <label><input type="checkbox" name="participantes" value="{{ u.id }}"> {{ u.nome }}</label>
+            {% if u.id != g.user.id %}<option value="{{ u.id }}">{{ u.nome }}</option>{% endif %}
           {% endfor %}
-        </div>
-        <button class="btn primary">Criar grupo</button>
+        </select>
+        <button class="btn primary small">Abrir</button>
       </form>
-      {% else %}
-        <p class="muted">Somente o admin cria grupos. Você conversa nos grupos onde foi incluído.</p>
+
+      {% if user_is_admin(g.user) %}
+      <details class="create-group-box">
+        <summary>Criar grupo</summary>
+        <form method="post" action="{{ url_for('criar_grupo_chat') }}" class="form-grid compact-form">
+          <input name="nome" placeholder="Nome do grupo" required>
+          <div class="checkbox-list compact-users-list">
+            {% for u in usuarios %}
+              <label><input type="checkbox" name="participantes" value="{{ u.id }}"> {{ u.nome }}</label>
+            {% endfor %}
+          </div>
+          <button class="btn primary">Criar grupo</button>
+        </form>
+      </details>
       {% endif %}
-      <div class="list-cards chat-group-list">
+
+      <div class="conversation-list">
         {% for gpo in grupos %}
-          <div class="mini-card chat-group-card">
-            <a class="chat-group-link" href="{{ url_for('comunicacao', group_id=gpo.id) }}">
-              <strong>{{ gpo.nome }}</strong>
-              <span>{{ gpo.total_membros }} participante(s)</span>
+          <div class="conversation-item {% if grupo_atual and grupo_atual.id == gpo.id %}active{% endif %}">
+            <a href="{{ url_for('comunicacao', group_id=gpo.id) }}">
+              <span class="conv-avatar">{{ (gpo.nome or 'C')[:1]|upper }}</span>
+              <span class="conv-info">
+                <strong>{{ gpo.nome }}</strong>
+                <small>{{ gpo.total_membros }} participante(s)</small>
+              </span>
             </a>
-            {% if user_is_admin(g.user) %}
-              <form method="post" action="{{ url_for('excluir_grupo_chat', group_id=gpo.id) }}" onsubmit="return confirm('Excluir este chat? As mensagens deixam de aparecer e arquivos temporários pendentes serão apagados.');">
-                <button class="btn danger small" type="submit">Excluir</button>
+            {% if user_is_admin(g.user) and not (gpo.tipo_chat == 'direto') %}
+              <form method="post" action="{{ url_for('excluir_grupo_chat', group_id=gpo.id) }}" onsubmit="return confirm('Excluir este chat?');">
+                <button class="mini-delete" type="submit">×</button>
               </form>
             {% endif %}
           </div>
         {% else %}
-          <p class="muted">Nenhum grupo encontrado.</p>
+          <p class="muted">Nenhuma conversa encontrada.</p>
         {% endfor %}
       </div>
-    </div>
+    </aside>
 
-    <div class="card chat-card whatsapp-chat-card">
+    <section class="card chat-card whatsapp-chat-card">
       {% if grupo_atual %}
       <div class="wa-chat-shell">
         <div class="wa-chat-header">
           <div class="wa-avatar">{{ (grupo_atual.nome or 'C')[:1]|upper }}</div>
           <div>
             <h2>{{ grupo_atual.nome }}</h2>
-            <span>Chat interno • {{ mensagens|length }} mensagem(ns)</span>
+            <span>online • digite /tarefa ou /pedido para criar uma ação</span>
           </div>
         </div>
 
@@ -76,41 +94,44 @@
           {% endfor %}
         </div>
 
+        <div class="slash-action-pop" id="slashActionPop" hidden>
+          <div class="slash-title" id="slashActionTitle">Criar ação</div>
+          <form method="post" action="{{ url_for('criar_tarefa') }}" id="taskCommandForm" class="slash-form">
+            <input type="hidden" name="redirect_group_id" value="{{ grupo_atual.id }}">
+            <input name="titulo" placeholder="Título da tarefa" required>
+            <textarea name="descricao" placeholder="Descrição / orientação"></textarea>
+            <select name="responsavel_id"><option value="">Responsável</option>{% for u in usuarios %}<option value="{{ u.id }}">{{ u.nome }}</option>{% endfor %}</select>
+            <input type="datetime-local" name="prazo">
+            <button class="btn primary">Enviar tarefa</button>
+          </form>
+          <form method="post" action="{{ url_for('criar_pedido_agendado') }}" id="orderCommandForm" class="slash-form" hidden>
+            <input type="hidden" name="redirect_group_id" value="{{ grupo_atual.id }}">
+            <input name="titulo" placeholder="Título do pedido" required>
+            <select name="loja_id"><option value="">Escolha a loja</option>{% for loja in lojas %}<option value="{{ loja.id }}">{{ loja.nome }}</option>{% endfor %}</select>
+            <input type="datetime-local" name="agendado_para">
+            <textarea name="itens_texto" placeholder="Itens. Ex: 123 - Pão - 10" required></textarea>
+            <button class="btn primary">Agendar pedido</button>
+          </form>
+        </div>
+
         <form method="post" enctype="multipart/form-data" action="{{ url_for('enviar_mensagem_chat', group_id=grupo_atual.id) }}" class="wa-chat-form">
           <label class="wa-attach" title="Anexar arquivo">📎<input type="file" name="arquivo"></label>
-          <textarea name="mensagem" placeholder="Mensagem" rows="1"></textarea>
+          <textarea name="mensagem" id="chatMessageInput" placeholder="Mensagem ou /tarefa ou /pedido" rows="1"></textarea>
           <button class="wa-send" type="submit" title="Enviar">➤</button>
         </form>
       </div>
       {% else %}
         <div class="wa-chat-shell wa-no-chat">
-          <div class="wa-empty">Selecione ou crie um grupo para conversar.</div>
+          <div class="wa-empty">Selecione uma conversa ou abra mensagem individual.</div>
         </div>
       {% endif %}
-    </div>
-
-    <script>
-      const waChatBox = document.getElementById('waChatBox');
-      if (waChatBox) waChatBox.scrollTop = waChatBox.scrollHeight;
-      document.querySelectorAll('.wa-chat-form textarea').forEach((el) => {
-        el.addEventListener('input', () => {
-          el.style.height = 'auto';
-          el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-        });
-      });
-    </script>
+    </section>
   </section>
 
-  <section class="grid-2">
+  <section class="grid-2 action-summary-grid">
     <div class="card">
       <h2>Tarefas</h2>
-      <form method="post" action="{{ url_for('criar_tarefa') }}" class="form-grid compact-form">
-        <input name="titulo" placeholder="Título da tarefa" required>
-        <textarea name="descricao" placeholder="Descrição"></textarea>
-        <select name="responsavel_id"><option value="">Sem responsável</option>{% for u in usuarios %}<option value="{{ u.id }}">{{ u.nome }}</option>{% endfor %}</select>
-        <input type="datetime-local" name="prazo">
-        <button class="btn primary">Criar tarefa</button>
-      </form>
+      <p class="muted">Para criar nova tarefa, abra uma conversa e digite <strong>/tarefa</strong>.</p>
       <div class="responsive-table"><table><thead><tr><th>Tarefa</th><th>Responsável</th><th>Status</th><th>Ação</th></tr></thead><tbody>
         {% for t in tarefas %}<tr><td>{{ t.titulo }}<br><small>{{ t.prazo or '' }}</small></td><td>{{ t.responsavel_nome or '-' }}</td><td>{{ t.status }}</td><td>{% if t.status != 'CONCLUIDA' %}<form method="post" action="{{ url_for('concluir_tarefa', task_id=t.id) }}"><button class="btn small">Concluir</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="4">Sem tarefas.</td></tr>{% endfor %}
       </tbody></table></div>
@@ -118,17 +139,38 @@
 
     <div class="card">
       <h2>Pedidos agendados</h2>
-      <form method="post" action="{{ url_for('criar_pedido_agendado') }}" class="form-grid compact-form">
-        <input name="titulo" placeholder="Ex: Pedido Loja 3 amanhã" required>
-        <select name="loja_id"><option value="">Escolha a loja</option>{% for loja in lojas %}<option value="{{ loja.id }}">{{ loja.nome }}</option>{% endfor %}</select>
-        <input type="datetime-local" name="agendado_para">
-        <textarea name="itens_texto" placeholder="Itens do pedido. Ex: 123 - Pão - 10" required></textarea>
-        <button class="btn primary">Agendar pedido</button>
-      </form>
+      <p class="muted">Para agendar pedido, abra uma conversa e digite <strong>/pedido</strong>.</p>
       <div class="responsive-table"><table><thead><tr><th>Pedido</th><th>Loja</th><th>Status</th><th>Ação</th></tr></thead><tbody>
         {% for p in pedidos_agendados %}<tr><td>{{ p.titulo }}<br><small>{{ p.agendado_para or '' }}</small></td><td>{{ p.loja_nome or '-' }}</td><td>{{ p.status }}</td><td>{% if pode_criar_pedidos and p.status == 'AGENDADO' %}<form method="post" action="{{ url_for('enviar_pedido_agendado', order_id=p.id) }}"><button class="btn small primary">Enviar ao separador</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="4">Sem pedidos agendados.</td></tr>{% endfor %}
       </tbody></table></div>
     </div>
   </section>
+
+  <script>
+    const waChatBox = document.getElementById('waChatBox');
+    if (waChatBox) waChatBox.scrollTop = waChatBox.scrollHeight;
+    const chatInput = document.getElementById('chatMessageInput');
+    const pop = document.getElementById('slashActionPop');
+    const title = document.getElementById('slashActionTitle');
+    const taskForm = document.getElementById('taskCommandForm');
+    const orderForm = document.getElementById('orderCommandForm');
+    function updateSlashAction(){
+      if (!chatInput || !pop) return;
+      const text = chatInput.value.trim().toLowerCase();
+      const isTask = text.startsWith('/tarefa');
+      const isOrder = text.startsWith('/pedido');
+      pop.hidden = !(isTask || isOrder);
+      if (isTask) { title.textContent = 'Nova tarefa pelo chat'; taskForm.hidden = false; orderForm.hidden = true; }
+      if (isOrder) { title.textContent = 'Novo pedido agendado pelo chat'; taskForm.hidden = true; orderForm.hidden = false; }
+    }
+    document.querySelectorAll('.wa-chat-form textarea').forEach((el) => {
+      el.addEventListener('input', () => {
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+        updateSlashAction();
+      });
+    });
+    updateSlashAction();
+  </script>
 </main>
 {% endblock %}
