@@ -7225,29 +7225,86 @@ def concluir_tarefa(task_id: int) -> Response:
     return redirect(url_for("comunicacao"))
 
 
+
+@app.get("/comunicacao/produto/buscar")
+@login_required
+@module_required("comunicacao")
+def buscar_produto_chat() -> Response:
+    codigo = (request.args.get("codigo") or "").strip()
+    if not codigo:
+        return jsonify({"ok": False, "erro": "Informe o código do produto."}), 400
+    like = f"%{codigo}%"
+    with closing(get_conn()) as conn:
+        item = conn.execute("""
+            SELECT codigo, codigo_barras, descricao, fator_embalagem
+            FROM stock_items
+            WHERE ativo = 1
+              AND (codigo = ? OR codigo_barras = ? OR codigo LIKE ? OR codigo_barras LIKE ?)
+            ORDER BY CASE WHEN codigo = ? THEN 0 WHEN codigo_barras = ? THEN 1 ELSE 2 END, codigo
+            LIMIT 1
+        """, (codigo, codigo, like, like, codigo, codigo)).fetchone()
+    if item is None:
+        return jsonify({"ok": False, "erro": "Produto não encontrado no estoque."}), 404
+    return jsonify({
+        "ok": True,
+        "produto": {
+            "codigo": item["codigo"],
+            "codigo_barras": item["codigo_barras"],
+            "descricao": item["descricao"],
+            "fator_embalagem": item["fator_embalagem"] or 1,
+        }
+    })
+
 @app.post("/comunicacao/pedidos-agendados/criar")
 @login_required
 @module_required("comunicacao")
 def criar_pedido_agendado() -> Response:
     titulo = request.form.get("titulo", "").strip()
-    itens_texto = request.form.get("itens_texto", "").strip()
-    loja_id = request.form.get("loja_id", type=int)
+    codigo = request.form.get("codigo_produto", "").strip()
+    descricao = request.form.get("descricao_produto", "").strip()
+    embalagem = request.form.get("embalagem_produto", "").strip()
+    quantidade = request.form.get("quantidade", "").strip()
     agendado_para = request.form.get("agendado_para", "").strip()
-    if not titulo or not itens_texto:
-        flash("Informe título e itens do pedido.", "error")
-        return redirect(url_for("comunicacao"))
+    loja_ids = [int(x) for x in request.form.getlist("loja_ids") if str(x).isdigit()]
+    loja_id_unica = request.form.get("loja_id", type=int)
+    if loja_id_unica and loja_id_unica not in loja_ids:
+        loja_ids.insert(0, loja_id_unica)
     redirect_group_id = request.form.get("redirect_group_id", type=int)
+
+    if not titulo:
+        titulo = f"Pedido {codigo}" if codigo else "Pedido pelo chat"
+    if not loja_ids or not codigo or not descricao or not quantidade:
+        flash("Preencha loja destino, código do produto, produto válido e quantidade.", "error")
+        return redirect(url_for("comunicacao", group_id=redirect_group_id) if redirect_group_id else url_for("comunicacao"))
+
+    try:
+        qtd_num = parse_float(quantidade, "Quantidade")
+        if qtd_num <= 0:
+            raise ValueError("Quantidade inválida")
+    except Exception:
+        flash("Informe uma quantidade válida.", "error")
+        return redirect(url_for("comunicacao", group_id=redirect_group_id) if redirect_group_id else url_for("comunicacao"))
+
+    item_linha = f"{codigo} - {descricao} - emb {embalagem or '1'} - qtd {qtd_num:g}"
+    created_ids = []
     with closing(get_conn()) as conn:
-        cur = conn.execute("INSERT INTO scheduled_orders (loja_id, titulo, itens_texto, agendado_para, criado_por, criado_em) VALUES (?, ?, ?, ?, ?, ?)", (loja_id, titulo, itens_texto, agendado_para, g.user["id"], agora_iso()))
-        oid = cur.lastrowid
+        lojas_rows = conn.execute(f"SELECT id, nome FROM stores WHERE id IN ({','.join(['?']*len(loja_ids))})", loja_ids).fetchall()
+        lojas_nome = {int(r["id"]): r["nome"] for r in lojas_rows}
+        for lid in loja_ids:
+            cur = conn.execute(
+                "INSERT INTO scheduled_orders (loja_id, titulo, itens_texto, agendado_para, criado_por, criado_em) VALUES (?, ?, ?, ?, ?, ?)",
+                (lid, titulo, item_linha, agendado_para, g.user["id"], agora_iso())
+            )
+            created_ids.append(cur.lastrowid)
         if redirect_group_id and _is_group_member(conn, redirect_group_id, g.user["id"]):
-            aviso = f"🧾 Pedido agendado: {titulo}"
-            if itens_texto:
-                aviso += f"\n{itens_texto}"
+            lojas_txt = ", ".join(lojas_nome.get(lid, f"Loja {lid}") for lid in loja_ids)
+            aviso = f"🧾 Pedido criado pelo chat: {titulo}\nDestino: {lojas_txt}\nItem: {item_linha}"
+            if agendado_para:
+                aviso += f"\nPrazo: {agendado_para}"
             conn.execute("INSERT INTO chat_messages (group_id, user_id, mensagem, arquivo_status, criado_em) VALUES (?, ?, ?, 'sem_arquivo', ?)", (redirect_group_id, g.user["id"], aviso, agora_iso()))
         conn.commit()
-    registrar_auditoria("criar_pedido_agendado", "scheduled_orders", str(oid), {"titulo": titulo, "loja_id": loja_id})
-    flash("Pedido agendado criado.", "success")
+    registrar_auditoria("criar_pedido_agendado", "scheduled_orders", ",".join(map(str, created_ids)), {"titulo": titulo, "lojas": loja_ids, "codigo": codigo, "quantidade": qtd_num})
+    flash(f"Pedido criado para {len(created_ids)} loja(s).", "success")
     return redirect(url_for("comunicacao", group_id=redirect_group_id) if redirect_group_id else url_for("comunicacao"))
 
 
