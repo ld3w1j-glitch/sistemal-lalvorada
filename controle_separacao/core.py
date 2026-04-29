@@ -280,7 +280,10 @@ def user_access_set(user: sqlite3.Row | dict[str, Any] | None) -> set[str]:
     if user_is_admin(user):
         return set(ACCESS_KEYS)
     raw = user["access_rules"] if "access_rules" in user.keys() else None
-    return parse_access_rules(raw, role, user_permission_level(user))
+    acessos = parse_access_rules(raw, role, user_permission_level(user))
+    # Chat/Tarefas é área comum: todo usuário logado pode acessar.
+    acessos.add("comunicacao")
+    return acessos
 
 
 
@@ -288,6 +291,8 @@ def user_has_access(user: sqlite3.Row | dict[str, Any] | None, module: str) -> b
     module_key = str(module or "").strip().lower()
     if module_key not in ACCESS_KEYS:
         return False
+    if module_key == "comunicacao" and user is not None:
+        return True
     return module_key in user_access_set(user)
 
 
