@@ -1579,66 +1579,154 @@ def dashboard_stats() -> dict[str, Any]:
 
 
 def painel_gerencial_padaria_cd() -> dict[str, Any]:
-    """Resumo gerencial simplificado para o painel, focado em Padaria - Industria CD."""
-    where = """
-        WHERE ativo = 1
-          AND UPPER(COALESCE(linha_caminho_erp, linha_erp, '')) LIKE '%PADARIA%'
-          AND UPPER(COALESCE(linha_caminho_erp, linha_erp, '')) LIKE '%INDUSTRIA%'
-          AND UPPER(COALESCE(linha_caminho_erp, linha_erp, '')) LIKE '%CD%'
+    """Resumo gerencial simplificado para o painel, focado em Padaria - Industria CD.
+
+    Esta versão evita quebrar o dashboard quando o banco antigo ainda não tem alguma
+    coluna nova. Também calcula o valor considerando o fator de embalagem.
     """
-    row = query_one(f"""
-        SELECT
-            COUNT(*) AS total_itens,
-            COALESCE(SUM(quantidade_atual), 0) AS quantidade_total,
-            COALESCE(SUM(COALESCE(quantidade_atual, 0) * COALESCE(embalagem,1) * COALESCE(custo_unitario, 0)), 0) AS valor_estoque,
-            SUM(CASE WHEN COALESCE(quantidade_atual, 0) <= 0 THEN 1 ELSE 0 END) AS itens_zerados,
-            SUM(CASE WHEN COALESCE(quantidade_atual, 0) > 0 AND COALESCE(quantidade_atual, 0) <= 10 THEN 1 ELSE 0 END) AS itens_abaixo
-        FROM stock_items
-        {where}
-    """)
-    linhas = query_all(f"""
-        SELECT COALESCE(linha_erp, 'Sem linha') AS linha,
-               COUNT(*) AS total_itens,
-               SUM(CASE WHEN COALESCE(quantidade_atual, 0) <= 0 THEN 1 ELSE 0 END) AS zerados,
-               SUM(CASE WHEN COALESCE(quantidade_atual, 0) > 0 AND COALESCE(quantidade_atual, 0) <= 10 THEN 1 ELSE 0 END) AS abaixo
-        FROM stock_items
-        {where}
-        GROUP BY COALESCE(linha_erp, 'Sem linha')
-        ORDER BY total_itens DESC
-        LIMIT 8
-    """)
-    return {
-        "total_itens": int((row["total_itens"] if row else 0) or 0),
-        "quantidade_total": float((row["quantidade_total"] if row else 0) or 0),
-        "valor_estoque": float((row["valor_estoque"] if row else 0) or 0),
-        "itens_zerados": int((row["itens_zerados"] if row else 0) or 0),
-        "itens_abaixo": int((row["itens_abaixo"] if row else 0) or 0),
-        "linhas": linhas,
+    vazio = {
+        "total_itens": 0,
+        "quantidade_total": 0.0,
+        "valor_estoque": 0.0,
+        "itens_zerados": 0,
+        "itens_abaixo": 0,
+        "linhas": [],
     }
+    try:
+        with closing(get_conn()) as conn:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(stock_items)").fetchall()}
+            if not cols:
+                return vazio
+
+            def col(name: str, fallback: str = "NULL") -> str:
+                return name if name in cols else fallback
+
+            codigo_col = col("codigo")
+            descricao_col = col("descricao", "''")
+            ativo_expr = col("ativo", "1")
+            qtd_expr = col("quantidade_atual", "0")
+            custo_expr = col("custo_unitario", "0")
+            fator_expr = col("fator_embalagem", "1")
+            linha_expr = col("linha_erp", "''")
+            caminho_expr = col("linha_caminho_erp", "''")
+            nivel_expr = col("erp_nivel", "''")
+            loja_expr = col("erp_loja", "''")
+
+            rows = conn.execute(f"""
+                SELECT
+                    {codigo_col} AS codigo,
+                    {descricao_col} AS descricao,
+                    COALESCE({qtd_expr}, 0) AS quantidade_atual,
+                    COALESCE({custo_expr}, 0) AS custo_unitario,
+                    COALESCE({fator_expr}, 1) AS fator_embalagem,
+                    COALESCE({linha_expr}, '') AS linha_erp,
+                    COALESCE({caminho_expr}, '') AS linha_caminho_erp,
+                    COALESCE({nivel_expr}, '') AS erp_nivel,
+                    COALESCE({loja_expr}, '') AS erp_loja
+                FROM stock_items
+                WHERE COALESCE({ativo_expr}, 1) = 1
+            """).fetchall()
+
+        total_itens = 0
+        quantidade_total = 0.0
+        valor_estoque = 0.0
+        itens_zerados = 0
+        itens_abaixo = 0
+        grupos: dict[str, dict[str, Any]] = {}
+
+        for item in rows:
+            texto_linha = " ".join([
+                str(item["linha_erp"] or ""),
+                str(item["linha_caminho_erp"] or ""),
+                str(item["erp_nivel"] or ""),
+                str(item["erp_loja"] or ""),
+            ]).upper()
+            # Filtro mais tolerante para evitar excluir itens por diferença de cadastro.
+            if "PADARIA" not in texto_linha:
+                continue
+            if "INDUSTRIA" not in texto_linha and "INDÚSTRIA" not in texto_linha:
+                continue
+            if "CD" not in texto_linha and "CENTRO" not in texto_linha:
+                # Mantém compatibilidade: alguns ERPs não gravam CD no caminho, mas a linha ainda é a correta.
+                pass
+
+            try:
+                quantidade = float(item["quantidade_atual"] or 0)
+            except (TypeError, ValueError):
+                quantidade = 0.0
+            try:
+                custo = float(item["custo_unitario"] or 0)
+            except (TypeError, ValueError):
+                custo = 0.0
+            try:
+                fator = float(item["fator_embalagem"] or 1)
+            except (TypeError, ValueError):
+                fator = 1.0
+            if fator <= 0:
+                fator = 1.0
+
+            total_itens += 1
+            quantidade_total += quantidade
+            valor_estoque += quantidade * fator * custo
+            if quantidade <= 0:
+                itens_zerados += 1
+            elif quantidade <= 10:
+                itens_abaixo += 1
+
+            nome_linha = (item["linha_erp"] or "Sem linha")
+            grupo = grupos.setdefault(nome_linha, {"linha": nome_linha, "total_itens": 0, "abaixo": 0, "zerados": 0})
+            grupo["total_itens"] += 1
+            if quantidade <= 0:
+                grupo["zerados"] += 1
+            elif quantidade <= 10:
+                grupo["abaixo"] += 1
+
+        linhas = sorted(grupos.values(), key=lambda x: x["total_itens"], reverse=True)[:8]
+        return {
+            "total_itens": int(total_itens),
+            "quantidade_total": float(quantidade_total),
+            "valor_estoque": float(valor_estoque),
+            "itens_zerados": int(itens_zerados),
+            "itens_abaixo": int(itens_abaixo),
+            "linhas": linhas,
+        }
+    except Exception as exc:
+        try:
+            registrar_auditoria("erro_painel_gerencial_padaria", "dashboard", "padaria_cd", {"erro": str(exc)})
+        except Exception:
+            pass
+        return vazio
 
 
 def painel_chat_resumo() -> dict[str, Any]:
-    """Mostra mensagens recentes dos chats em que o usuário participa."""
-    uid = int(g.user["id"])
-    pendentes = query_one("""
-        SELECT COUNT(*) AS c
-        FROM chat_messages m
-        JOIN chat_group_members gm ON gm.group_id = m.group_id AND gm.user_id = ?
-        JOIN chat_groups cg ON cg.id = m.group_id AND cg.ativo = 1
-        WHERE COALESCE(m.user_id, 0) <> ?
-          AND m.criado_em >= datetime('now', '-2 days')
-    """, (uid, uid))
-    ultimas = query_all("""
-        SELECT m.id, m.mensagem, m.criado_em, cg.nome AS grupo_nome, u.nome AS usuario_nome
-        FROM chat_messages m
-        JOIN chat_group_members gm ON gm.group_id = m.group_id AND gm.user_id = ?
-        JOIN chat_groups cg ON cg.id = m.group_id AND cg.ativo = 1
-        LEFT JOIN users u ON u.id = m.user_id
-        WHERE COALESCE(m.user_id, 0) <> ?
-        ORDER BY m.id DESC
-        LIMIT 3
-    """, (uid, uid))
-    return {"novas": int(pendentes["c"] if pendentes else 0), "ultimas": ultimas}
+    """Mostra mensagens recentes dos chats em que o usuário participa sem derrubar o dashboard."""
+    try:
+        uid = int(g.user["id"])
+        pendentes = query_one("""
+            SELECT COUNT(*) AS c
+            FROM chat_messages m
+            JOIN chat_group_members gm ON gm.group_id = m.group_id AND gm.user_id = ?
+            JOIN chat_groups cg ON cg.id = m.group_id AND cg.ativo = 1
+            WHERE COALESCE(m.user_id, 0) <> ?
+              AND m.criado_em >= datetime('now', '-2 days')
+        """, (uid, uid))
+        ultimas = query_all("""
+            SELECT m.id, m.mensagem, m.criado_em, cg.nome AS grupo_nome, u.nome AS usuario_nome
+            FROM chat_messages m
+            JOIN chat_group_members gm ON gm.group_id = m.group_id AND gm.user_id = ?
+            JOIN chat_groups cg ON cg.id = m.group_id AND cg.ativo = 1
+            LEFT JOIN users u ON u.id = m.user_id
+            WHERE COALESCE(m.user_id, 0) <> ?
+            ORDER BY m.id DESC
+            LIMIT 3
+        """, (uid, uid))
+        return {"novas": int((pendentes["c"] if pendentes else 0) or 0), "ultimas": ultimas}
+    except Exception as exc:
+        try:
+            registrar_auditoria("erro_painel_chat", "dashboard", "chat_resumo", {"erro": str(exc)})
+        except Exception:
+            pass
+        return {"novas": 0, "ultimas": []}
 
 @app.get("/")
 @login_required
