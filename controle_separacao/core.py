@@ -1221,6 +1221,29 @@ def parse_float(raw: str, field_name: str) -> float:
     return number
 
 
+
+
+def parse_quantidade_com_calculo(raw: str, field_name: str = "Quantidade") -> float:
+    """Aceita número normal ou conta simples, por exemplo: 10+5, 12*3, (8+2)/2."""
+    texto = str(raw or "").strip()
+    if not texto:
+        raise ValueError(f"{field_name} inválida.")
+    parece_expressao = bool(re.search(r"[\+\-\*\/\%\(\)]", texto)) or "x" in texto.casefold() or "×" in texto or "÷" in texto
+    if not parece_expressao:
+        return parse_float(texto, field_name)
+    expr = _mcp_normalizar_expressao_calculo(texto)
+    if not expr or not re.search(r"\d", expr):
+        raise ValueError(f"{field_name} inválida. Use número ou cálculo simples, exemplo: 12*3.")
+    try:
+        resultado = float(_mcp_avaliar_no_calculo(ast.parse(expr, mode="eval")))
+    except ZeroDivisionError as exc:
+        raise ValueError(f"{field_name} inválida: divisão por zero.") from exc
+    except Exception as exc:
+        raise ValueError(f"{field_name} inválida. Use apenas números e +, -, *, /, parênteses.") from exc
+    if resultado < 0:
+        raise ValueError(f"{field_name} não pode ser negativa.")
+    return resultado
+
 def role_badge(role: str) -> str:
     classes = {
         "admin": "badge badge-admin",
@@ -6755,7 +6778,7 @@ def detalhe_balanco(balance_id: int) -> str | Response:
             flash("Informe o código ou código de barras do produto.", "error")
             return redirect(url_for("detalhe_balanco", balance_id=balance_id))
         try:
-            quantidade = parse_float(quantidade_raw, "Quantidade contada")
+            quantidade = parse_quantidade_com_calculo(quantidade_raw, "Quantidade contada")
         except ValueError as exc:
             flash(str(exc), "error")
             return redirect(url_for("detalhe_balanco", balance_id=balance_id))

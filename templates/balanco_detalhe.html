@@ -33,11 +33,14 @@
           <span class="mini">Descrição encontrada</span>
           <strong id="descricao_balanco">Digite ou escaneie um código</strong>
         </div>
-        <input type="text" id="quantidade_balanco" name="quantidade_contada" placeholder="Quantidade contada" required>
+        <div class="balance-calc-wrap">
+          <input type="text" id="quantidade_balanco" name="quantidade_contada" placeholder="Quantidade contada ou cálculo. Ex: 12*3, 10+5" required>
+          <div class="balance-calc-preview" id="balance-calc-preview" hidden></div>
+        </div>
         <div class="balance-duplicate-help" id="balance-duplicate-help" hidden></div>
         <button type="submit">Registrar</button>
       </form>
-      <p class="mini">Dica: use “somar” quando contar o mesmo produto em mais de um local do estoque.</p>
+      <p class="mini">Dica: agora você pode digitar conta no campo quantidade, exemplo: <strong>12*3</strong>, <strong>10+5</strong> ou <strong>(20+10)/2</strong>. O sistema registra o resultado final.</p>
     </div>
     {% endif %}
     <div class="card" style="margin-top:16px;">
@@ -119,6 +122,7 @@
   const modoInput = document.getElementById('modo_balanco');
   const form = document.getElementById('balance-count-form');
   const duplicateHelp = document.getElementById('balance-duplicate-help');
+  const calcPreview = document.getElementById('balance-calc-preview');
   const btnCamera = document.getElementById('btn-camera-balanco');
   const modal = document.getElementById('scanner-modal-balanco');
   const video = document.getElementById('scanner-video-balanco');
@@ -130,6 +134,58 @@
   let codigoTimer = null;
   let ultimoCodigoConsultado = '';
   let ultimaInfoCodigo = null;
+
+
+
+  function normalizarExpressaoQuantidade(valor) {
+    return String(valor || '')
+      .trim()
+      .toLowerCase()
+      .replace(/×/g, '*')
+      .replace(/÷/g, '/')
+      .replace(/,/g, '.')
+      .replace(/x/g, '*')
+      .replace(/[^0-9.+\-*/%()\s]/g, '')
+      .replace(/\s+/g, '');
+  }
+
+  function calcularQuantidadeLocal(valor) {
+    const original = String(valor || '').trim();
+    if (!original) return null;
+    const temOperador = /[+\-*/%()x×÷]/i.test(original);
+    if (!temOperador) return null;
+    const expr = normalizarExpressaoQuantidade(original);
+    if (!expr || !/\d/.test(expr) || !/[+\-*/%]/.test(expr)) return null;
+    if (!/^[0-9.+\-*/%()]+$/.test(expr)) return { erro: true };
+    try {
+      const resultado = Function('"use strict"; return (' + expr + ')')();
+      if (!Number.isFinite(resultado) || resultado < 0) return { erro: true };
+      return { valor: resultado, expressao: expr };
+    } catch (e) {
+      return { erro: true };
+    }
+  }
+
+  function atualizarPreviewQuantidade() {
+    if (!quantidadeInput || !calcPreview) return;
+    const info = calcularQuantidadeLocal(quantidadeInput.value);
+    if (!info) {
+      calcPreview.hidden = true;
+      calcPreview.textContent = '';
+      calcPreview.classList.remove('erro');
+      return true;
+    }
+    calcPreview.hidden = false;
+    if (info.erro) {
+      calcPreview.classList.add('erro');
+      calcPreview.textContent = 'Cálculo inválido. Use exemplo: 12*3 ou 10+5.';
+      return false;
+    }
+    calcPreview.classList.remove('erro');
+    const texto = Number.isInteger(info.valor) ? String(info.valor) : String(Number(info.valor.toFixed(6))).replace('.', ',');
+    calcPreview.textContent = 'Resultado que será registrado: ' + texto;
+    return true;
+  }
 
   function fecharScanner() {
     scanning = false;
@@ -267,11 +323,17 @@
       if (liberadoSubmit) return;
       ev.preventDefault();
       const codigo = codigoInput ? codigoInput.value.trim() : '';
+      if (!atualizarPreviewQuantidade()) return;
       const podeEnviar = await tratarCodigoRepetido(codigo);
       if (!podeEnviar) return;
       liberadoSubmit = true;
       form.submit();
     });
+  }
+
+  if (quantidadeInput) {
+    quantidadeInput.addEventListener('input', atualizarPreviewQuantidade);
+    quantidadeInput.addEventListener('blur', atualizarPreviewQuantidade);
   }
 
   if (codigoInput) {

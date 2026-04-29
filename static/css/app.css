@@ -2870,3 +2870,28 @@ body {
     border-radius:16px;
   }
 }
+
+/* Balanço: campo de quantidade com cálculo simples */
+.balance-calc-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+.balance-calc-preview {
+  border: 1px solid rgba(21, 94, 43, 0.22);
+  background: rgba(21, 94, 43, 0.08);
+  color: #155e2b;
+  border-radius: 12px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.balance-calc-preview.erro {
+  border-color: rgba(180, 44, 44, 0.28);
+  background: rgba(180, 44, 44, 0.08);
+  color: #8f1d1d;
+}
+@media (max-width: 720px) {
+  .balance-calc-wrap { width: 100%; }
+}
