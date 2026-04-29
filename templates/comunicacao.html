@@ -1,4 +1,7 @@
 {% extends 'base.html' %}
+{% macro ci(name) -%}
+<span class="ci ci-{{ name }}" aria-hidden="true"></span>
+{%- endmacro %}
 {% block content %}
 <main class="wrap page-stack communication-page communication-v2">
   <section class="card hero-card">
@@ -9,7 +12,7 @@
   <section class="chat-layout-v2">
     <aside class="chat-sidebar card">
       <div class="chat-sidebar-head">
-        <h2>Conversas</h2>
+        <h2>{{ ci("chat") }} Conversas</h2>
       </div>
 
       <form method="post" action="{{ url_for('abrir_chat_direto') }}" class="direct-chat-form">
@@ -19,12 +22,12 @@
             {% if u.id != g.user.id %}<option value="{{ u.id }}">{{ u.nome }}</option>{% endif %}
           {% endfor %}
         </select>
-        <button class="btn primary small">Abrir</button>
+        <button class="btn primary small">{{ ci("send") }} Abrir</button>
       </form>
 
       {% if user_is_admin(g.user) %}
       <details class="create-group-box">
-        <summary>Criar grupo</summary>
+        <summary>{{ ci("users") }} Criar grupo</summary>
         <form method="post" action="{{ url_for('criar_grupo_chat') }}" class="form-grid compact-form">
           <input name="nome" placeholder="Nome do grupo" required>
           <div class="checkbox-list compact-users-list">
@@ -32,7 +35,7 @@
               <label><input type="checkbox" name="participantes" value="{{ u.id }}"> {{ u.nome }}</label>
             {% endfor %}
           </div>
-          <button class="btn primary">Criar grupo</button>
+          <button class="btn primary">{{ ci("plus") }} Criar grupo</button>
         </form>
       </details>
       {% endif %}
@@ -49,7 +52,7 @@
             </a>
             {% if user_is_admin(g.user) and not (gpo.tipo_chat == 'direto') %}
               <form method="post" action="{{ url_for('excluir_grupo_chat', group_id=gpo.id) }}" onsubmit="return confirm('Excluir este chat?');">
-                <button class="mini-delete" type="submit">×</button>
+                <button class="mini-delete" type="submit" title="Excluir chat">{{ ci("trash") }}</button>
               </form>
             {% endif %}
           </div>
@@ -68,7 +71,7 @@
             <h2>{{ grupo_atual.nome }}</h2>
             <span>online • digite /tarefa ou /pedido para criar uma ação</span>
           </div>
-          <img class="wa-header-sun" src="{{ url_for('static', filename='img/ia_sun_mascot.png') }}" alt="IA Alvorada">
+          <div class="wa-header-actions">{{ ci("search") }}{{ ci("more") }}</div><img class="wa-header-sun" src="{{ url_for('static', filename='img/ia_sun_mascot.png') }}" alt="IA Alvorada">
         </div>
 
         <div class="wa-chat-box" id="waChatBox">
@@ -78,14 +81,14 @@
                 {% if msg.user_id != g.user.id %}<strong>{{ msg.usuario_nome or 'Usuário' }}</strong>{% endif %}
                 {% if msg.mensagem %}<p>{{ msg.mensagem }}</p>{% endif %}
                 {% if msg.arquivo_nome and msg.arquivo_status == 'pendente' %}
-                  <div class="wa-file">📎 {{ msg.arquivo_nome }}
+                  <div class="wa-file">{{ ci("attach") }} {{ msg.arquivo_nome }}
                     <a href="{{ url_for('baixar_arquivo_chat', message_id=msg.id) }}">baixar</a>
                     {% if msg.user_id != g.user.id %}
                     <form method="post" action="{{ url_for('confirmar_arquivo_chat', message_id=msg.id) }}"><button class="btn small">Confirmar</button></form>
                     {% endif %}
                   </div>
                 {% elif msg.arquivo_nome %}
-                  <div class="wa-file muted">📎 {{ msg.arquivo_nome }} — {{ msg.arquivo_status }}</div>
+                  <div class="wa-file muted">{{ ci("attach") }} {{ msg.arquivo_nome }} — {{ msg.arquivo_status }}</div>
                 {% endif %}
                 <small>{{ msg.criado_em }}</small>
               </div>
@@ -96,14 +99,14 @@
         </div>
 
         <div class="slash-action-pop" id="slashActionPop" hidden>
-          <div class="slash-title" id="slashActionTitle">Criar ação</div>
+          <div class="slash-title" id="slashActionTitle">{{ ci("check") }} Criar ação</div>
           <form method="post" action="{{ url_for('criar_tarefa') }}" id="taskCommandForm" class="slash-form">
             <input type="hidden" name="redirect_group_id" value="{{ grupo_atual.id }}">
             <input name="titulo" placeholder="Título da tarefa" required>
             <textarea name="descricao" placeholder="Descrição / orientação"></textarea>
             <select name="responsavel_id"><option value="">Responsável</option>{% for u in usuarios %}<option value="{{ u.id }}">{{ u.nome }}</option>{% endfor %}</select>
             <input type="datetime-local" name="prazo">
-            <button class="btn primary">Enviar tarefa</button>
+            <button class="btn primary">{{ ci("check") }} Enviar tarefa</button>
           </form>
           <form method="post" action="{{ url_for('criar_pedido_agendado') }}" id="orderCommandForm" class="slash-form order-command-form" hidden>
             <input type="hidden" name="redirect_group_id" value="{{ grupo_atual.id }}">
@@ -125,7 +128,7 @@
             <label class="mini-label">Código do produto</label>
             <div class="product-lookup-row">
               <input name="codigo_produto" id="pedidoCodigoProduto" placeholder="Digite o código" required autocomplete="off">
-              <button type="button" class="btn small" id="buscarProdutoBtn">Buscar</button>
+              <button type="button" class="btn small" id="buscarProdutoBtn">{{ ci("search") }} Buscar</button>
             </div>
             <div id="produtoStatus" class="product-status muted">Digite o código para carregar descrição e embalagem.</div>
             <input name="descricao_produto" id="pedidoDescricaoProduto" placeholder="Descrição" readonly required>
@@ -134,7 +137,7 @@
             <label class="mini-label">Quantidade</label>
             <input name="quantidade" type="number" step="0.001" min="0.001" placeholder="Quantidade" required>
             <input type="datetime-local" name="agendado_para">
-            <button class="btn primary">Enviar pedido</button>
+            <button class="btn primary">{{ ci("cart") }} Enviar pedido</button>
           </form>
         </div>
 
@@ -144,9 +147,9 @@
         </div>
 
         <form method="post" enctype="multipart/form-data" action="{{ url_for('enviar_mensagem_chat', group_id=grupo_atual.id) }}" class="wa-chat-form">
-          <label class="wa-attach" title="Anexar arquivo">📎<input type="file" name="arquivo"></label>
+          <label class="wa-attach" title="Anexar arquivo">{{ ci("attach") }}<input type="file" name="arquivo"></label>
           <textarea name="mensagem" id="chatMessageInput" placeholder="Mensagem ou /tarefa ou /pedido" rows="1"></textarea>
-          <button class="wa-send" type="submit" title="Enviar">➤</button>
+          <button class="wa-send" type="submit" title="Enviar">{{ ci("send") }}</button>
         </form>
       </div>
       {% else %}
@@ -159,18 +162,18 @@
 
   <section class="grid-2 action-summary-grid">
     <div class="card">
-      <h2>Tarefas</h2>
+      <h2>{{ ci("check") }} Tarefas</h2>
       <p class="muted">Para criar nova tarefa, abra uma conversa e digite <strong>/tarefa</strong>.</p>
       <div class="responsive-table"><table><thead><tr><th>Tarefa</th><th>Responsável</th><th>Status</th><th>Ação</th></tr></thead><tbody>
-        {% for t in tarefas %}<tr><td>{{ t.titulo }}<br><small>{{ t.prazo or '' }}</small></td><td>{{ t.responsavel_nome or '-' }}</td><td>{{ t.status }}</td><td>{% if t.status != 'CONCLUIDA' %}<form method="post" action="{{ url_for('concluir_tarefa', task_id=t.id) }}"><button class="btn small">Concluir</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="4">Sem tarefas.</td></tr>{% endfor %}
+        {% for t in tarefas %}<tr><td>{{ t.titulo }}<br><small>{{ t.prazo or '' }}</small></td><td>{{ t.responsavel_nome or '-' }}</td><td>{{ t.status }}</td><td>{% if t.status != 'CONCLUIDA' %}<form method="post" action="{{ url_for('concluir_tarefa', task_id=t.id) }}"><button class="btn small">{{ ci("check") }} Concluir</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="4">Sem tarefas.</td></tr>{% endfor %}
       </tbody></table></div>
     </div>
 
     <div class="card">
-      <h2>Pedidos agendados</h2>
+      <h2>{{ ci("cart") }} Pedidos agendados</h2>
       <p class="muted">Para agendar pedido, abra uma conversa e digite <strong>/pedido</strong>.</p>
       <div class="responsive-table"><table><thead><tr><th>Pedido</th><th>Loja</th><th>Status</th><th>Ação</th></tr></thead><tbody>
-        {% for p in pedidos_agendados %}<tr><td>{{ p.titulo }}<br><small>{{ p.agendado_para or '' }}</small></td><td>{{ p.loja_nome or '-' }}</td><td>{{ p.status }}</td><td>{% if pode_criar_pedidos and p.status == 'AGENDADO' %}<form method="post" action="{{ url_for('enviar_pedido_agendado', order_id=p.id) }}"><button class="btn small primary">Enviar ao separador</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="4">Sem pedidos agendados.</td></tr>{% endfor %}
+        {% for p in pedidos_agendados %}<tr><td>{{ p.titulo }}<br><small>{{ p.agendado_para or '' }}</small></td><td>{{ p.loja_nome or '-' }}</td><td>{{ p.status }}</td><td>{% if pode_criar_pedidos and p.status == 'AGENDADO' %}<form method="post" action="{{ url_for('enviar_pedido_agendado', order_id=p.id) }}"><button class="btn small primary">{{ ci("send") }} Enviar ao separador</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="4">Sem pedidos agendados.</td></tr>{% endfor %}
       </tbody></table></div>
     </div>
   </section>

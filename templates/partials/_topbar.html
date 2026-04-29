@@ -1,3 +1,4 @@
+{% macro nav_icon(name) -%}<span class="ci ci-{{ name }}" aria-hidden="true"></span>{%- endmacro %}
 <header class="topbar" id="main-topbar">
   <div class="wrap">
     <div class="topbar-head">
@@ -13,24 +14,24 @@
       <button type="button" class="menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="main-nav">Menu</button>
     </div>
     <nav class="nav" id="main-nav">
-      {% if user_has_access(g.user, 'painel') %}<a href="{{ url_for('dashboard') }}">Painel</a>{% endif %}
-      {% if user_has_access(g.user, 'separacoes') %}<a href="{{ url_for('listar_separacoes') }}">Separações</a>{% endif %}
-      {% if user_has_access(g.user, 'estoque') %}<a href="{{ url_for('estoque') }}">Estoque</a>{% endif %}
-      {% if user_has_access(g.user, 'recebimentos') %}<a href="{{ url_for('recebimentos') }}">Recebimentos</a>{% endif %}
-      {% if user_has_access(g.user, 'balanco') %}<a href="{{ url_for('balancos') }}">Balanço</a>{% endif %}
-      {% if user_has_access(g.user, 'estoque') and user_is_admin(g.user) %}<a href="{{ url_for('importar_estoque_erp') }}">Importar ERP</a>{% endif %}
-      {% if user_has_access(g.user, 'relatorios') %}<a href="{{ url_for('relatorios') }}">Relatórios</a>{% endif %}
-      {% if user_has_access(g.user, 'usuarios') %}<a href="{{ url_for('usuarios') }}">Usuários</a>{% endif %}
-      {% if user_has_access(g.user, 'lojas') %}<a href="{{ url_for('lojas') }}">Lojas</a>{% endif %}
-      {% if user_has_access(g.user, 'pedidos') %}<a href="{{ url_for('nova_separacao') }}">Criar pedidos</a>{% endif %}
-      {% if user_has_access(g.user, 'lotes') %}<a href="{{ url_for('listar_lotes') }}">Lotes</a>{% endif %}
-      {% if user_has_access(g.user, 'configuracoes') %}<a href="{{ url_for('configuracoes') }}">Configurações</a>{% endif %}
-      {% if user_has_access(g.user, 'mcp_teste') %}<a href="{{ url_for('mcp_teste') }}">MCP/IA</a>{% endif %}
-      {% if user_has_access(g.user, 'comunicacao') %}<a href="{{ url_for('comunicacao') }}">Chat/Tarefas</a>{% endif %}
-      {% if user_has_access(g.user, 'codigo_fonte') %}<a href="{{ url_for('admin_codigo_fonte') }}">Código fonte</a>{% endif %}
-      {% if user_has_access(g.user, 'auditoria') %}<a href="{{ url_for('auditoria') }}">Auditoria</a>{% endif %}
-      <a href="{{ url_for('minha_conta') }}">Minha conta</a>
-      <a href="{{ url_for('logout') }}">Sair</a>
+      {% if user_has_access(g.user, 'painel') %}<a href="{{ url_for('dashboard') }}">{{ nav_icon('home') }} Painel</a>{% endif %}
+      {% if user_has_access(g.user, 'separacoes') %}<a href="{{ url_for('listar_separacoes') }}">{{ nav_icon('list') }} Separações</a>{% endif %}
+      {% if user_has_access(g.user, 'estoque') %}<a href="{{ url_for('estoque') }}">{{ nav_icon('box') }} Estoque</a>{% endif %}
+      {% if user_has_access(g.user, 'recebimentos') %}<a href="{{ url_for('recebimentos') }}">{{ nav_icon('download') }} Recebimentos</a>{% endif %}
+      {% if user_has_access(g.user, 'balanco') %}<a href="{{ url_for('balancos') }}">{{ nav_icon('check') }} Balanço</a>{% endif %}
+      {% if user_has_access(g.user, 'estoque') and user_is_admin(g.user) %}<a href="{{ url_for('importar_estoque_erp') }}">{{ nav_icon('upload') }} Importar ERP</a>{% endif %}
+      {% if user_has_access(g.user, 'relatorios') %}<a href="{{ url_for('relatorios') }}">{{ nav_icon('chart') }} Relatórios</a>{% endif %}
+      {% if user_has_access(g.user, 'usuarios') %}<a href="{{ url_for('usuarios') }}">{{ nav_icon('user') }} Usuários</a>{% endif %}
+      {% if user_has_access(g.user, 'lojas') %}<a href="{{ url_for('lojas') }}">{{ nav_icon('store') }} Lojas</a>{% endif %}
+      {% if user_has_access(g.user, 'pedidos') %}<a href="{{ url_for('nova_separacao') }}">{{ nav_icon('cart') }} Criar pedidos</a>{% endif %}
+      {% if user_has_access(g.user, 'lotes') %}<a href="{{ url_for('listar_lotes') }}">{{ nav_icon('grid') }} Lotes</a>{% endif %}
+      {% if user_has_access(g.user, 'configuracoes') %}<a href="{{ url_for('configuracoes') }}">{{ nav_icon('settings') }} Configurações</a>{% endif %}
+      {% if user_has_access(g.user, 'mcp_teste') %}<a href="{{ url_for('mcp_teste') }}">{{ nav_icon('bot') }} MCP/IA</a>{% endif %}
+      {% if user_has_access(g.user, 'comunicacao') %}<a href="{{ url_for('comunicacao') }}">{{ nav_icon('chat') }} Chat/Tarefas</a>{% endif %}
+      {% if user_has_access(g.user, 'codigo_fonte') %}<a href="{{ url_for('admin_codigo_fonte') }}">{{ nav_icon('code') }} Código fonte</a>{% endif %}
+      {% if user_has_access(g.user, 'auditoria') %}<a href="{{ url_for('auditoria') }}">{{ nav_icon('shield') }} Auditoria</a>{% endif %}
+      <a href="{{ url_for('minha_conta') }}">{{ nav_icon('profile') }} Minha conta</a>
+      <a href="{{ url_for('logout') }}">{{ nav_icon('logout') }} Sair</a>
     </nav>
   </div>
 </header>
